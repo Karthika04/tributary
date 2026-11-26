@@ -165,6 +165,26 @@ class LogTest {
     }
 
     @Test
+    void aBatchBiggerThanASegmentContinuesInTheNextOne() {
+        try (Log log = Log.open(dir, SMALL)) {
+            log.append(null, bytes("first"));
+            List<NewRecord> big = new ArrayList<>();
+            for (int i = 0; i < 100; i++) {
+                big.add(NewRecord.of(1, bytes("batched-" + i))); // about 4 KB, segments hold 1 KB
+            }
+
+            assertEquals(1, log.appendAll(big));
+
+            assertEquals(101, log.endOffset());
+            assertTrue(log.segmentCount() >= 4, "segments: " + log.segmentCount());
+            List<Record> all = log.read(0, 200);
+            for (int i = 0; i < 100; i++) {
+                assertEquals("batched-" + i, text(all.get(i + 1)));
+            }
+        }
+    }
+
+    @Test
     void handlesOneHundredThousandRecords() {
         LogConfig config = LogConfig.defaults().withMaxRecordBytes(1024).withSegmentBytes(256 * 1024);
         try (Log log = Log.open(dir, config)) {

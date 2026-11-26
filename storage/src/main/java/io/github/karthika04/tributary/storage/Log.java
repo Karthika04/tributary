@@ -169,36 +169,59 @@ public final class Log implements Closeable {
     }
 
     /**
-     * Appends a batch as one write. Records get consecutive offsets.
-     * Either the whole batch is accepted or, on a validation error, none of it.
+     * Appends a batch. Records get consecutive offsets. Each segment the batch touches
+     * costs a single write; a batch bigger than a segment continues in the next one.
+     *
+     * <p>All records are validated first, so a record that is too large rejects the whole
+     * batch with nothing written. (A crash part-way through a multi-segment batch can
+     * keep its first part; the producer was never told it succeeded, so it retries.)
      *
      * @return the offset of the first record in the batch
+     * @throws RecordTooLargeException if any record exceeds {@link LogConfig#maxRecordBytes()}
      */
     public long appendAll(List<NewRecord> batch) {
         if (batch.isEmpty()) {
             throw new IllegalArgumentException("batch must not be empty");
         }
-        long totalBytes = 0;
         for (NewRecord record : batch) {
             int size = record.frameSize();
             if (size > config.maxRecordBytes()) {
-                throw new IllegalArgumentException("record of " + size
+                throw new RecordTooLargeException("record of " + size
                         + " bytes is larger than maxRecordBytes (" + config.maxRecordBytes() + ")");
             }
-            totalBytes += size;
-        }
-        if (totalBytes > config.segmentBytes() || batch.size() > config.maxRecordsPerSegment()) {
-            throw new IllegalArgumentException("batch of " + batch.size() + " records / " + totalBytes
-                    + " bytes does not fit in one segment; send smaller batches");
         }
 
         lock.writeLock().lock();
         try {
             ensureOpen();
-            if (!active.canFit(totalBytes, batch.size()) && active.recordCount() > 0) {
-                roll();
+            // Write as many records as fit in the active segment, roll, and repeat. A
+            // batch bigger than a segment simply continues in the next one.
+            long firstOffset = -1;
+            int from = 0;
+            while (from < batch.size()) {
+                long bytes = 0;
+                int to = from;
+                while (to < batch.size()) {
+                    int size = batch.get(to).frameSize();
+                    if (!active.canFit(bytes + size, to - from + 1)) {
+                        break;
+                    }
+                    bytes += size;
+                    to++;
+                }
+                if (to == from) {
+                    // Nothing more fits. An empty segment always fits one record, because
+                    // maxRecordBytes <= segmentBytes, so the active segment must have data.
+                    roll();
+                    continue;
+                }
+                long base = active.append(batch.subList(from, to));
+                if (firstOffset < 0) {
+                    firstOffset = base;
+                }
+                from = to;
             }
-            return active.append(batch);
+            return firstOffset;
         } catch (IOException e) {
             throw new UncheckedIOException("append failed in " + dir, e);
         } finally {
