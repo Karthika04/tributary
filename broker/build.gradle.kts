@@ -2,6 +2,7 @@
 // storage engine and answers produce, fetch and metadata requests.
 
 plugins {
+    `java-library`
     application
     jacoco
 }
@@ -12,7 +13,9 @@ application {
 }
 
 dependencies {
-    implementation(project(":storage"))
+    // `api`: BrokerConfig exposes storage's LogConfig, so anyone using the broker
+    // (tests in other modules, for example) needs storage on their classpath too.
+    api(project(":storage"))
     implementation(project(":protocol"))
 
     testImplementation(project(":client"))
