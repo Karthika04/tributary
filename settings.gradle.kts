@@ -7,4 +7,4 @@ dependencyResolutionManagement {
     }
 }
 
-include("storage", "protocol", "broker", "client")
+include("storage", "protocol", "broker", "client", "cli")
