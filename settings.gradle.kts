@@ -1,10 +1,10 @@
 rootProject.name = "tributary"
 
-// Where Gradle downloads third-party libraries (JUnit, gRPC, ...) from.
+// Where Gradle downloads third-party libraries (JUnit, ...) from.
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
     }
 }
 
-include("storage")
+include("storage", "protocol")

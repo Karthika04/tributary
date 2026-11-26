@@ -1,0 +1,32 @@
+package io.github.karthika04.tributary.protocol;
+
+/**
+ * Which operation a request asks for. The number is what goes on the wire, so it must
+ * never change once released; new operations get new numbers.
+ */
+public enum ApiKey {
+    CREATE_TOPIC(0),
+    METADATA(1),
+    PRODUCE(2),
+    FETCH(3),
+    LIST_OFFSETS(4);
+
+    private final short code;
+
+    ApiKey(int code) {
+        this.code = (short) code;
+    }
+
+    public short code() {
+        return code;
+    }
+
+    public static ApiKey fromCode(short code) {
+        for (ApiKey key : values()) {
+            if (key.code == code) {
+                return key;
+            }
+        }
+        throw new ProtocolException("unknown api key " + code);
+    }
+}
