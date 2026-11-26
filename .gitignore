@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# macOS
+.DS_Store
+
+# Local data written while running the broker
+data/
+*.log.tmp
