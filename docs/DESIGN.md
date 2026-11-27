@@ -4,7 +4,7 @@ Tributary is a distributed, fault-tolerant message queue in the style of Apache 
 written from scratch in Java. This document explains what it does, how it is built,
 and why each major decision was made.
 
-Status: **v2: storage engine, wire protocol, broker, client library and CLI complete.**
+Status: **v3: storage engine, wire protocol, broker, client library, CLI and consumer groups complete.**
 Later sections are marked *planned*.
 
 ## 1. Goals
@@ -50,11 +50,11 @@ Later sections are marked *planned*.
 |---|---|---|
 | `storage` | Segmented, crash-safe commit log | JDK only |
 | `protocol` | Message types, binary codec, framing, compression, partitioner | JDK only |
-| `broker` | TCP server, topics and partitions, long polling, retention | storage, protocol |
+| `broker` | TCP server, topics and partitions, long polling, retention, consumer groups | storage, protocol |
 | `client` | `TributaryClient`, batching `Producer`, polling `Consumer` | protocol |
 | `cli` | The `tributary` command-line tool | client |
 
-Planned: consumer groups (Phase 3), Raft replication (Phase 4).
+Planned: Raft replication (Phase 4).
 
 ## 4. Storage engine
 
@@ -199,13 +199,18 @@ response = [correlationId: int][apiKey: short][error: short][errorMessage: strin
 | PRODUCE | topic, partition, record block | base offset |
 | FETCH | topic, partition, offset, maxRecords, maxWaitMs, compression | start offset, end offset, record block |
 | LIST_OFFSETS | topic, partition | start offset, end offset |
+| JOIN_GROUP | group, member id (empty if new), topics, session timeout, assignor | member id, generation, assigned partitions |
+| HEARTBEAT | group, member id, generation | (none), or REBALANCE_IN_PROGRESS |
+| LEAVE_GROUP | group, member id | (none) |
+| COMMIT_OFFSETS | group, member id, (topic, partition, offset) list | partitions rejected because not owned |
+| FETCH_OFFSETS | group, partitions | committed offset per partition (-1 if none) |
 
 - **correlationId:** chosen by the client and echoed by the broker, so a response can
   be matched to its request. The client checks it and drops the connection on a
   mismatch rather than ever handing back the wrong answer.
 - **version:** lets the protocol evolve without breaking old clients. Unknown versions
   get an `UNSUPPORTED_VERSION` error.
-- **errors:** 13 error codes, each marked retriable or not, so clients know whether
+- **errors:** 16 error codes, each marked retriable or not, so clients know whether
   trying again could help. A body that cannot be decoded gets `INVALID_REQUEST` and the
   connection stays usable; an unreadable header closes the connection.
 
@@ -297,12 +302,90 @@ A background thread calls `applyRetention()` on every partition on a timer
 - **`Consumer`:** keeps a position per partition. `poll()` first asks every partition
   for data without waiting (rotating the starting partition so none is starved), and if
   all are caught up, long-polls one. If its position was deleted by retention it
-  resets to the oldest (or newest) offset, per `autoOffsetReset`. Positions are
-  in memory for now; consumer groups will store them on the broker.
+  resets to the oldest (or newest) offset, per `autoOffsetReset`. With a group id it
+  becomes a group member (section 8); without one, partitions are chosen by hand and
+  positions live only in memory.
 
-## 8. Testing
+## 8. Consumer groups
 
-94 automated tests across the modules.
+### 8.1 What they are for
+
+Several copies of a service read one topic as a team: each partition goes to exactly
+one member, so the work is shared and each record is processed by one member. Different
+groups are independent, and each sees every record (one topic can feed billing,
+shipping and analytics at once). When a member joins, leaves or dies, its partitions
+move to the others automatically, and the group's committed progress lets the new owner
+carry on where the old one stopped.
+
+### 8.2 The membership protocol
+
+```
+consumer A                 broker (GroupCoordinator)              consumer B
+    | JOIN(billing, -, [orders]) ->|                                  |
+    |<- member A, gen 1, [p0..p3]  |                                  |
+    |                              |<- JOIN(billing, -, [orders]) ----|
+    |                              |-- member B, gen 2, [p2,p3] ----->|
+    | HEARTBEAT(A, gen 1) -------->|                                  |
+    |<- REBALANCE_IN_PROGRESS -----|                                  |
+    | COMMIT(p2, p3 progress)      |  (rejected: B owns them now)     |
+    | JOIN(billing, A, [orders]) ->|                                  |
+    |<- member A, gen 2, [p0,p1] --|                                  |
+```
+
+- **Join:** the broker gives a new member an id, bumps the group's **generation** and
+  reassigns every partition among the current members.
+- **Heartbeat:** members send one every second (from inside `poll()`). A member whose
+  generation is behind gets `REBALANCE_IN_PROGRESS` and joins again, with its existing
+  id, to learn its new partitions.
+- **Leave:** `Consumer.close()` sends it, so partitions move immediately.
+- **Session timeout:** a background check removes members with no heartbeat for their
+  session timeout (default 10 s) and rebalances. This covers crashes, where no Leave
+  is ever sent.
+
+**Decision: the broker computes assignments**, in one round trip, instead of Kafka's
+original two-step protocol where one consumer computed them. See
+[ADR 0002](adr/0002-broker-side-group-assignment.md).
+
+### 8.3 Assignment strategies
+
+Both are deterministic (members sorted by id) and give every partition to exactly one
+subscribed member. Both match the examples in Kafka's documentation, which the tests
+check.
+
+- **range:** per topic, contiguous blocks of partitions per member. Partition N of two
+  co-keyed topics lands on the same member.
+- **roundrobin:** every partition of every topic dealt out in turn. Most even overall.
+
+### 8.4 Committed offsets
+
+A committed offset means "every record before this was processed". Commits are appended
+to the internal topic `__consumer_offsets` as `key = group/topic/partition,
+value = offset`, so they get the storage engine's durability and crash recovery for
+free; the broker replays the topic on startup. The topic is hidden from topic listings,
+and clients cannot create topics starting with `__` or produce to them.
+
+Known limitation: without log compaction this topic only grows. Kafka compacts it to the
+newest record per key.
+
+### 8.5 Fencing zombies
+
+A consumer that froze (say, a long GC pause) may not know it lost its partitions. If it
+then committed, it could overwrite the new owner's progress. So **only the member that
+currently owns a partition may commit it**; anything else comes back in the response's
+`rejected` list and is not saved.
+
+### 8.6 Delivery guarantee: at-least-once
+
+Auto-commit (default every second, and on close) commits positions reached by earlier
+`poll()` calls, so a record is only committed after the application had it. If a
+consumer crashes before committing, or a rebalance moves a partition before the commit,
+the new owner starts from the last commit and some records are processed again. Records
+are never skipped. The CLI's `--max-messages` rewinds positions for records it fetched
+but did not print, so even that never commits past unprocessed records.
+
+## 9. Testing
+
+119 automated tests across the modules.
 
 Storage (43), including:
 
@@ -325,7 +408,7 @@ Protocol (18): every message type round-trips with and without compression; cut-
 padded, wrong-version and lying-compression-size inputs are rejected; murmur2 matches
 Kafka's published values; keys spread evenly.
 
-Broker (16), against a real broker on a random port: topic errors; broker timestamps;
+Broker (17), against a real broker on a random port: topic errors; broker timestamps;
 compression both ways; a waiting fetch returns as soon as data arrives and gives up on
 time; shutdown wakes waiting fetches; data survives a restart; background retention;
 50 concurrent clients; malformed requests get an error and the connection keeps
@@ -337,11 +420,20 @@ the broker is down and succeeds once it is back; the consumer reads every partit
 with no gaps; latest vs earliest; poll wakes on new data; seek; reset after retention
 deletes the position; compression end to end.
 
-CLI (5): create, list, produce from arguments and stdin, consume, offsets, error exit
-codes, unreachable broker.
+Consumer groups (24): both assignors match Kafka's documented examples; every partition
+is owned once; idle members when there are more members than partitions; rebalance on
+join, leave, subscription change and session expiry (with a controllable clock);
+zombie commits rejected; committed offsets survive a broker restart; internal topic
+hidden and protected. End to end: two members split a topic and read every record
+exactly once; a restarted consumer resumes from its group's commit; separate groups
+each get everything; `close()` moves partitions immediately; a crashed member's
+partitions move only after its session times out.
 
-## 9. Planned
+CLI (6): create, list, produce from arguments and stdin, consume, consume with a group
+and resume, lag, offsets, error exit codes, unreachable broker.
 
-Consumer groups with committed offsets (Phase 3), Raft replication with Apache Ratis
-(Phase 4), chaos testing (Phase 5), metrics and benchmarks (Phase 6), Docker packaging
-(Phase 7).
+## 10. Planned
+
+Raft replication with Apache Ratis (Phase 4), chaos testing (Phase 5), metrics and
+benchmarks (Phase 6), Docker packaging (Phase 7). Idempotent producers (to remove
+duplicates from retries) are a possible extension.
