@@ -54,15 +54,16 @@ Later sections are marked *planned*.
 | `storage` | Segmented, crash-safe commit log | JDK only |
 | `protocol` | Message types, binary codec, framing, compression, partitioner | JDK only |
 | `raft` | Raft consensus: elections, log replication, safety rules | storage |
-| `broker` | TCP server, topics and partitions, long polling, retention, consumer groups, cluster mode | storage, protocol, raft, client |
+| `broker` | TCP server, topics and partitions, long polling, retention, consumer groups, cluster mode, metrics | storage, protocol, raft, client; Micrometer and SLF4J facades |
 | `client` | `TributaryClient`, batching `Producer`, polling `Consumer`, multi-broker failover | protocol |
 | `cli` | The `tributary` command-line tool | client |
 | `chaos` | Chaos testing: real broker processes, fault injection, a correctness checker | client, broker |
 | `bench` | `tributary-perf` load generator and JMH micro-benchmarks | client, chaos, broker; HdrHistogram, JMH |
 
-The core modules (storage, protocol, raft, broker, client) use only the JDK. Libraries
-are used for measuring and observing, never in the data path:
-[ADR 0005](adr/0005-libraries-only-for-measurement-and-observability.md).
+Storage, protocol, raft and the client use only the JDK. The broker's code adds two
+facades for observing it (Micrometer for metrics, SLF4J for request IDs in logs), and
+its application plugs in Prometheus output and Logback. Libraries are never in the
+data path: [ADR 0005](adr/0005-libraries-only-for-measurement-and-observability.md).
 
 The broker uses the client library to talk to other brokers in a cluster (section 9).
 
@@ -730,7 +731,7 @@ The first runs, on a 2-CPU Linux machine, turned up four problems:
    it (17 MB/s at 64 KB, 45 MB/s at 1 MB, and four producers barely added more), so the
    default batch is now 1 MB; `lingerMs` still sends partial batches after 5 ms, and
    latency at fixed rates did not change. The real fix, several requests in flight
-   per connection, needs idempotent producers to keep order across retries (section 13).
+   per connection, needs idempotent producers to keep order across retries (section 14).
 
    | Max-rate throughput | 64 KB batches | 1 MB batches |
    |---|---:|---:|
@@ -821,9 +822,67 @@ What they show:
 - **GZIP costs CPU:** 20x the time to encode a request. It pays off only when the
   network is the bottleneck.
 
-## 12. Testing
+## 12. Observability
 
-171 automated tests across the modules.
+### 12.1 Metrics
+
+Start a broker with `--metrics-port 9404` and it serves Prometheus' text format on
+`http://host:9404/metrics` (the JDK's built-in HTTP server; one endpoint does not
+need a web framework). The broker records metrics through Micrometer's `MeterRegistry`
+and never sees how they are exported; `BrokerMetrics` is the only class that knows.
+
+| Metric (as Prometheus sees it) | Type | Labels | What it answers |
+|---|---|---|---|
+| `tributary_request_latency_seconds` | histogram | api, error | Request rate, error rate, and p99 latency per API |
+| `tributary_produce_records_total`, `_bytes_total` | counter | topic | How much is being written |
+| `tributary_fetch_records_total`, `_bytes_total` | counter | topic | How much is being read |
+| `tributary_consumer_lag` | gauge | group, topic, partition | How far behind each consumer group is |
+| `tributary_partition_end_offset` | gauge | topic, partition | Where each partition's log ends |
+| `tributary_connections` | gauge | | Open connections |
+| `tributary_raft_leader`, `_term`, `_commit_index`, `_last_applied` | gauge | | Who leads, and whether followers keep up |
+| `tributary_raft_leader_changes_total` | counter | | How often leadership moves |
+| `jvm_*`, `process_*`, `system_*` | various | | Memory, GC pauses, threads, CPU, uptime |
+
+- **Consumer lag** is the metric operators watch most: records written but not yet
+  committed by a group. It is computed when scraped (the partition's end offset minus
+  the group's committed offset), so it is never stale.
+- **Errors are a label, not a separate metric:** `error="none"` for success, else the
+  error code. `not_leader` errors during a failover are expected; `internal_error`
+  never is.
+- **Fetch latency is mostly waiting on purpose** (long polling), so dashboards leave
+  fetches out of latency panels.
+- Gauges for new partitions, groups and Raft leader changes are added or sampled once
+  a second.
+
+### 12.2 Dashboard
+
+`deploy/grafana/tributary-dashboard.json` is a Grafana dashboard with five rows:
+traffic (records and bytes per second by topic), requests (rate, errors by code, p99
+latency by API from the histogram), consumers (lag by group and by partition), Raft
+(leader, term, leader changes, commit and applied indexes), and the JVM (heap, GC
+pause time, CPU). `deploy/prometheus/prometheus.yml` scrapes a 3-broker cluster. Both
+run together under docker compose in Phase 7.
+
+### 12.3 Logs
+
+All code logs through the JDK's `System.Logger`, so storage, protocol and Raft need no
+logging library. In the broker application, the `slf4j-jdk-platform-logging` bridge
+sends those logs to SLF4J and Logback writes them:
+
+- `TRIBUTARY_LOG_FORMAT=TEXT` (the default) for people: `12:04:31.552 INFO  RaftNode - 2 is the leader for term 3`.
+- `TRIBUTARY_LOG_FORMAT=JSON` for log collectors: one JSON object per line (Logback's
+  `JsonEncoder`), with level, logger, message, thread, timestamp and the MDC.
+- `TRIBUTARY_LOG_LEVEL` sets the level (default `INFO`).
+
+While a request is handled, its `clientId`, `correlationId` and `api` are in SLF4J's
+MDC (per thread, and each connection has its own virtual thread), so every log line
+written for that request carries them: in JSON, they are fields to filter on. The
+broker logs requests that fail with `INTERNAL_ERROR`, and any non-fetch request slower
+than one second, so these are easy to find.
+
+## 13. Testing
+
+175 automated tests across the modules.
 
 Storage (47), including:
 
@@ -872,12 +931,16 @@ a follower; committed group offsets survive failover; without a majority nothing
 acknowledged, and writes resume when a majority returns. Making the broker acknowledge
 a produce before it commits makes three of these fail.
 
-Broker (24), against a real broker on a random port: topic errors; broker timestamps;
+Broker (28), against a real broker on a random port: topic errors; broker timestamps;
 compression both ways; a waiting fetch returns as soon as data arrives and gives up on
 time; shutdown wakes waiting fetches; data survives a restart; background retention;
 50 concurrent clients; malformed requests get an error and the connection keeps
-working; garbage and oversized frames close the connection; cluster and peer-address flags; the
-Raft produce command keeps its exact byte format, round-trips, and rejects a corrupt length.
+working; garbage and oversized frames close the connection; cluster, peer-address and
+metrics-port flags; the Raft produce command keeps its exact byte format, round-trips,
+and rejects a corrupt length; `/metrics` over HTTP counts requests by API and error,
+records and bytes by topic, and reports consumer lag that tracks new records; every
+cluster broker's metrics agree on the leader and term; the logging configuration is
+well formed (text by default, JSON on request).
 
 Client (14): every record gets a unique, dense offset; a flood of records is split into
 batches no bigger than `batchBytes` (a broker that refuses big requests still takes them
@@ -908,9 +971,9 @@ against a real broker must produce records with no errors and sane percentiles (
 first run of the suite quietly reported 0 records/s, which is how the producer bug was
 found), and the Markdown table is right.
 
-## 13. Planned
+## 14. Planned
 
-Metrics, dashboards and structured logs (the rest of Phase 6), Docker packaging (Phase 7).
+Docker images and a docker compose cluster with Prometheus and Grafana (Phase 7).
 Several produce requests in flight per connection with idempotent producers (sequence
 numbers per producer and partition, so retries cannot reorder or duplicate), which
 would lift the one-round-trip-per-batch limit of section 11.2. Raft snapshots and log

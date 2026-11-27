@@ -188,13 +188,26 @@ bench/build/install/tributary-perf/bin/tributary-perf suite     # single broker 
 
 All results and the before/after numbers: [DESIGN.md section 11](docs/DESIGN.md#11-performance).
 
+## Observable
+
+```bash
+tributary-broker --metrics-port 9404          # Prometheus metrics on http://localhost:9404/metrics
+TRIBUTARY_LOG_FORMAT=JSON tributary-broker    # one JSON object per log line
+```
+
+Request rate, errors and p99 latency by API, records and bytes by topic, **consumer
+lag** by group and partition, Raft leader, term and commit progress, and JVM health,
+through Micrometer; a ready-made Grafana dashboard (`deploy/grafana/`); and logs that
+carry each request's client and correlation ID. Details:
+[DESIGN.md section 12](docs/DESIGN.md#12-observability).
+
 ## Build and test
 
 ```bash
 ./gradlew build
 ```
 
-Compiles every module and runs 171 tests, including every chaos fault once against
+Compiles every module and runs 175 tests, including every chaos fault once against
 real broker processes, fuzzing of every decoder, Raft safety under random crashes
 and partitions, a 3-broker cluster losing its leader in the middle of a stream of
 writes, and end-to-end tests against a real broker: long polling, restarts, retries
@@ -213,6 +226,7 @@ client/     TributaryClient, Producer, Consumer
 cli/        the `tributary` command-line tool
 chaos/      chaos testing: broker processes, fault-injecting proxy, checker
 bench/      tributary-perf load generator and JMH micro-benchmarks
+deploy/     Prometheus configuration and Grafana dashboard
 docs/       design document and architecture decision records
 ```
 
@@ -225,7 +239,7 @@ docs/       design document and architecture decision records
 - [ ] Raft snapshots and log compaction
 - [x] Chaos testing: kill -9, partitions, frozen processes, slow links; fuzzing
 - [x] Benchmarks: load generator with latency percentiles, JMH, profiling-driven fixes
-- [ ] Metrics (Prometheus, Grafana) and structured logs
+- [x] Metrics (Micrometer, Prometheus), a Grafana dashboard, JSON logs with request IDs
 - [ ] Docker Compose cluster
 
 ## License
