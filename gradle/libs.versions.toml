@@ -1,10 +1,18 @@
 # Version catalog: every third-party library version used in the project, in one place.
 # Modules refer to these as libs.<name>, e.g. libs.junit.jupiter.
+#
+# The core modules (storage, protocol, raft) use none of these at runtime. Libraries
+# are used only for measuring and observing: benchmarks, metrics and logging.
 
 [versions]
 junit = "5.11.4"
+hdrhistogram = "2.2.2"
+jmh = "1.37"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+hdrhistogram = { module = "org.hdrhistogram:HdrHistogram", version.ref = "hdrhistogram" }
+jmh-core = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
+jmh-generator-annprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
