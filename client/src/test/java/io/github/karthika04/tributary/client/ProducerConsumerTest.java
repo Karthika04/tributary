@@ -314,11 +314,12 @@ class ProducerConsumerTest {
     }
 
     @Test
-    void parsesHostAndPort() {
-        ClientConfig config = ClientConfig.parse("broker.local:7000");
-        assertEquals("broker.local", config.host());
-        assertEquals(7000, config.port());
+    void parsesBrokerAddresses() {
+        assertEquals(List.of("broker.local:7000"), ClientConfig.parse("broker.local:7000").brokers());
+        assertEquals(List.of("a:1", "b:2", "c:3"), ClientConfig.parse("a:1, b:2,c:3").brokers());
         assertThrows(IllegalArgumentException.class, () -> ClientConfig.parse("no-port"));
         assertThrows(IllegalArgumentException.class, () -> ClientConfig.parse("host:"));
+        assertThrows(IllegalArgumentException.class, () -> ClientConfig.parse("host:99999"));
+        assertThrows(IllegalArgumentException.class, () -> ClientConfig.parse(""));
     }
 }

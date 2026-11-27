@@ -24,11 +24,13 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * A low-level connection to one broker: send a request, get its response.
+ * A low-level connection to a broker: send a request, get its response.
  *
- * <p>Connects lazily on first use and reconnects automatically after a network error.
- * Thread-safe: requests from several threads are sent one at a time. For real
- * applications, {@link Producer} and {@link Consumer} are easier to use.
+ * <p>Connects lazily on first use. If the broker cannot be reached, it tries the next
+ * address in {@link ClientConfig#brokers()}; if a broker answers {@code NOT_LEADER}, it
+ * follows the redirect to the leader. Both are retried with a growing pause, which rides
+ * out a leader election. Thread-safe: requests from several threads are sent one at a
+ * time. For real applications, {@link Producer} and {@link Consumer} are easier to use.
  *
  * <pre>{@code
  * try (TributaryClient client = new TributaryClient(ClientConfig.of("localhost", 9292))) {
@@ -39,7 +41,12 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class TributaryClient implements AutoCloseable {
 
+    private static final String LEADER_HINT = "leader is ";
+    private static final long MAX_BACKOFF_MS = 1_000;
+
     private final ClientConfig config;
+    private final List<String> addresses;
+    private int current;
     private final ReentrantLock lock = new ReentrantLock();
     private Socket socket;
     private InputStream in;
@@ -49,6 +56,17 @@ public final class TributaryClient implements AutoCloseable {
 
     public TributaryClient(ClientConfig config) {
         this.config = config;
+        this.addresses = new java.util.ArrayList<>(config.brokers());
+    }
+
+    /** The broker this client is currently talking to. */
+    public String currentBroker() {
+        lock.lock();
+        try {
+            return addresses.get(current);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public ClientConfig config() {
@@ -132,39 +150,96 @@ public final class TributaryClient implements AutoCloseable {
     public Response send(Request request) {
         lock.lock();
         try {
-            if (closed) {
-                throw new IllegalStateException("client is closed");
-            }
-            int extraWait = request instanceof Request.Fetch f ? f.maxWaitMs() : 0;
-            int correlationId = nextCorrelationId++;
-            ResponseEnvelope response;
-            try {
-                connectIfNeeded();
-                socket.setSoTimeout(config.requestTimeoutMs() + extraWait);
-                Frames.write(out, Codec.encodeRequest(correlationId, config.clientId(), request));
-                out.flush();
-                byte[] frame = Frames.read(in, config.maxFrameBytes());
-                if (frame == null) {
-                    throw new IOException("broker closed the connection");
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    return sendOnce(request);
+                } catch (TributaryException e) {
+                    // Errors that another broker might not have: this one is not the leader,
+                    // is unreachable, or is shutting down (a leader stopping mid-request).
+                    boolean redirectable = e.error() == ErrorCode.NOT_LEADER
+                            || e.error() == ErrorCode.NETWORK_ERROR
+                            || e.error() == ErrorCode.BROKER_SHUTTING_DOWN;
+                    if (!redirectable || attempt >= config.maxAttempts()) {
+                        throw e;
+                    }
+                    disconnect();
+                    String leader = leaderHint(e);
+                    if (leader != null) {
+                        if (!addresses.contains(leader)) {
+                            addresses.add(leader);
+                        }
+                        current = addresses.indexOf(leader);
+                        if (attempt == 1) {
+                            continue; // a direct redirect: no need to wait
+                        }
+                    } else {
+                        current = (current + 1) % addresses.size();
+                    }
+                    backoff(attempt);
                 }
-                response = Codec.decodeResponse(frame);
-            } catch (IOException | ProtocolException e) {
-                disconnect();
-                throw new TributaryException(ErrorCode.NETWORK_ERROR, request.apiKey() + " to "
-                        + config.host() + ":" + config.port() + " failed: " + e.getMessage(), e);
             }
-            if (response.correlationId() != correlationId) {
-                disconnect();
-                throw new TributaryException(ErrorCode.NETWORK_ERROR, "response for request "
-                        + response.correlationId() + " arrived while waiting for " + correlationId);
-            }
-            if (response.error() != ErrorCode.NONE) {
-                throw new TributaryException(response.error(), response.errorMessage());
-            }
-            return response.body();
         } finally {
             lock.unlock();
         }
+    }
+
+    /** Extracts "host:port" from a NOT_LEADER message such as "...; leader is host:port". */
+    private static String leaderHint(TributaryException e) {
+        if (e.error() != ErrorCode.NOT_LEADER) {
+            return null;
+        }
+        String message = e.getMessage();
+        int at = message.indexOf(LEADER_HINT);
+        if (at < 0) {
+            return null;
+        }
+        String hint = message.substring(at + LEADER_HINT.length()).trim();
+        int colon = hint.lastIndexOf(':');
+        return colon > 0 ? hint : null;
+    }
+
+    private void backoff(int attempt) {
+        long ms = Math.min(MAX_BACKOFF_MS, 50L << Math.min(attempt, 10));
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new TributaryException(ErrorCode.NETWORK_ERROR, "interrupted while retrying");
+        }
+    }
+
+    private Response sendOnce(Request request) {
+        // Called with the lock held.
+        if (closed) {
+            throw new IllegalStateException("client is closed");
+        }
+        int extraWait = request instanceof Request.Fetch f ? f.maxWaitMs() : 0;
+        int correlationId = nextCorrelationId++;
+        ResponseEnvelope response;
+        try {
+            connectIfNeeded();
+            socket.setSoTimeout(config.requestTimeoutMs() + extraWait);
+            Frames.write(out, Codec.encodeRequest(correlationId, config.clientId(), request));
+            out.flush();
+            byte[] frame = Frames.read(in, config.maxFrameBytes());
+            if (frame == null) {
+                throw new IOException("broker closed the connection");
+            }
+            response = Codec.decodeResponse(frame);
+        } catch (IOException | ProtocolException e) {
+            disconnect();
+            throw new TributaryException(ErrorCode.NETWORK_ERROR, request.apiKey() + " to "
+                    + addresses.get(current) + " failed: " + e.getMessage(), e);
+        }
+        if (response.correlationId() != correlationId) {
+            disconnect();
+            throw new TributaryException(ErrorCode.NETWORK_ERROR, "response for request "
+                    + response.correlationId() + " arrived while waiting for " + correlationId);
+        }
+        if (response.error() != ErrorCode.NONE) {
+            throw new TributaryException(response.error(), response.errorMessage());
+        }
+        return response.body();
     }
 
     private void connectIfNeeded() throws IOException {
@@ -174,7 +249,9 @@ public final class TributaryClient implements AutoCloseable {
         Socket s = new Socket();
         try {
             s.setTcpNoDelay(true);
-            s.connect(new InetSocketAddress(config.host(), config.port()), config.connectTimeoutMs());
+            String address = addresses.get(current);
+            s.connect(new InetSocketAddress(ClientConfig.host(address), ClientConfig.port(address)),
+                    config.connectTimeoutMs());
             in = new BufferedInputStream(s.getInputStream());
             out = new BufferedOutputStream(s.getOutputStream());
             socket = s;
