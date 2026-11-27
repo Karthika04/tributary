@@ -4,11 +4,13 @@ import io.github.karthika04.tributary.protocol.Codec;
 import io.github.karthika04.tributary.protocol.Compression;
 import io.github.karthika04.tributary.protocol.ErrorCode;
 import io.github.karthika04.tributary.protocol.Frames;
+import io.github.karthika04.tributary.protocol.PartitionOffset;
 import io.github.karthika04.tributary.protocol.ProducedRecord;
 import io.github.karthika04.tributary.protocol.ProtocolException;
 import io.github.karthika04.tributary.protocol.Request;
 import io.github.karthika04.tributary.protocol.Response;
 import io.github.karthika04.tributary.protocol.ResponseEnvelope;
+import io.github.karthika04.tributary.protocol.TopicPartition;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -91,6 +93,32 @@ public final class TributaryClient implements AutoCloseable {
 
     public Response.ListOffsets listOffsets(String topic, int partition) {
         return (Response.ListOffsets) send(new Request.ListOffsets(topic, partition));
+    }
+
+    // ---- consumer groups -----------------------------------------------------------
+
+    public Response.JoinGroup joinGroup(String groupId, String memberId, List<String> topics, int sessionTimeoutMs,
+                                        String assignor) {
+        return (Response.JoinGroup) send(new Request.JoinGroup(groupId, memberId, topics, sessionTimeoutMs,
+                assignor));
+    }
+
+    public void heartbeat(String groupId, String memberId, int generation) {
+        send(new Request.Heartbeat(groupId, memberId, generation));
+    }
+
+    public void leaveGroup(String groupId, String memberId) {
+        send(new Request.LeaveGroup(groupId, memberId));
+    }
+
+    /** @return partitions that were not saved because this member does not own them */
+    public List<TopicPartition> commitOffsets(String groupId, String memberId, List<PartitionOffset> offsets) {
+        return ((Response.CommitOffsets) send(new Request.CommitOffsets(groupId, memberId, offsets))).rejected();
+    }
+
+    /** One entry per partition, in the same order; offset -1 where nothing was committed. */
+    public List<PartitionOffset> fetchOffsets(String groupId, List<TopicPartition> partitions) {
+        return ((Response.FetchOffsets) send(new Request.FetchOffsets(groupId, partitions))).offsets();
     }
 
     // ---- core --------------------------------------------------------------------
