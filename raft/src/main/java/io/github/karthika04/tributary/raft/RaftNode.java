@@ -74,10 +74,16 @@ public final class RaftNode implements AutoCloseable {
     /** Every entry up to here is forced to disk. Only these count as "stored here". */
     private long durableIndex;
     private long electionDeadlineNanos;
+    /** When this node last accepted an AppendEntries from a leader. */
+    private long lastLeaderContactNanos;
+    /** Bumped by every pre-vote and election, so late answers to an old one are ignored. */
+    private long electionRound;
 
     // Leader-only state, reset on every election win.
     private final Map<String, Long> nextIndex = new HashMap<>();
     private final Map<String, Long> matchIndex = new HashMap<>();
+    /** When each peer last answered this leader (CheckQuorum). */
+    private final Map<String, Long> lastContactNanos = new HashMap<>();
     private long readyIndex = Long.MAX_VALUE;
     private final Map<Long, CompletableFuture<Object>> pending = new HashMap<>();
 
@@ -157,7 +163,15 @@ public final class RaftNode implements AutoCloseable {
             lock.lock();
             try {
                 if (role != Role.LEADER && System.nanoTime() >= electionDeadlineNanos) {
-                    startElection();
+                    startPreVote();
+                } else if (role == Role.LEADER && !heardFromMajority()) {
+                    // CheckQuorum: a leader cut off from the majority cannot commit
+                    // anything, and the others have probably elected someone else. Step
+                    // down so waiting clients get NOT_LEADER now and go find that leader,
+                    // instead of waiting out their timeouts here.
+                    LOG.log(Level.INFO, config.nodeId() + " lost contact with the majority in term " + currentTerm);
+                    stepDown(currentTerm);
+                    leaderId = null;
                 }
             } finally {
                 lock.unlock();
@@ -166,7 +180,54 @@ public final class RaftNode implements AutoCloseable {
         }
     }
 
+    /**
+     * PreVote (Raft thesis section 9.6): before raising its term, a node asks the others
+     * whether they <em>would</em> vote for it, which changes nothing anywhere. Only with
+     * a majority of yeses does it start a real election.
+     *
+     * <p>Without this, a node cut off from the cluster keeps timing out and raising its
+     * term. When it reconnects, its higher term forces the healthy leader to step down,
+     * and the cluster stalls for a pointless election. The chaos tests caught exactly
+     * that: isolating a follower for a few seconds cost three elections on its return.
+     */
+    private void startPreVote() {
+        resetElectionTimer(); // if this round goes nowhere, try again after another timeout
+        long round = ++electionRound;
+        long term = currentTerm;
+        if (1 >= config.majority()) {
+            startElection();
+            return;
+        }
+        VoteRequest request = new VoteRequest(term + 1, config.nodeId(), log.lastIndex(), log.lastTerm(), true);
+        int[] grants = {1}; // our own
+        for (String peer : config.peerIds()) {
+            Thread.ofVirtual().name("raft-" + config.nodeId() + "-prevote-" + peer).start(() -> {
+                VoteResponse response;
+                try {
+                    response = transport.requestVote(peer, request);
+                } catch (IOException | RuntimeException e) {
+                    return;
+                }
+                lock.lock();
+                try {
+                    if (response.term() > currentTerm) {
+                        stepDown(response.term()); // we were behind: catch up, no election
+                    } else if (round == electionRound && currentTerm == term && role != Role.LEADER
+                            && response.granted()) {
+                        grants[0]++;
+                        if (grants[0] >= config.majority()) {
+                            startElection();
+                        }
+                    }
+                } finally {
+                    lock.unlock();
+                }
+            });
+        }
+    }
+
     private void startElection() {
+        electionRound++;
         currentTerm++;
         votedFor = config.nodeId();
         meta.save(currentTerm, votedFor);
@@ -176,7 +237,7 @@ public final class RaftNode implements AutoCloseable {
         long term = currentTerm;
         LOG.log(Level.DEBUG, config.nodeId() + " starts an election for term " + term);
 
-        VoteRequest request = new VoteRequest(term, config.nodeId(), log.lastIndex(), log.lastTerm());
+        VoteRequest request = new VoteRequest(term, config.nodeId(), log.lastIndex(), log.lastTerm(), false);
         int[] votes = {1}; // our own
         if (votes[0] >= config.majority()) {
             becomeLeader();
@@ -207,11 +268,14 @@ public final class RaftNode implements AutoCloseable {
         }
     }
 
-    /** Answers a candidate's RequestVote. */
+    /** Answers a candidate's RequestVote, or a pre-vote. */
     public VoteResponse handleVote(VoteRequest request) {
         lock.lock();
         try {
             checkRunning();
+            if (request.preVote()) {
+                return new VoteResponse(currentTerm, wouldVote(request));
+            }
             if (request.term() > currentTerm) {
                 stepDown(request.term());
             }
@@ -231,12 +295,28 @@ public final class RaftNode implements AutoCloseable {
         }
     }
 
+    /**
+     * A pre-vote: would this node vote for the candidate in {@code request.term()}?
+     * No, if that term is not newer than ours, if its log is behind ours, or if we have
+     * a working leader: this node leads, or heard from the leader within the shortest
+     * election timeout. Nothing is changed or saved.
+     */
+    private boolean wouldVote(VoteRequest request) {
+        boolean logOk = request.lastLogTerm() > log.lastTerm()
+                || (request.lastLogTerm() == log.lastTerm() && request.lastLogIndex() >= log.lastIndex());
+        boolean leaderAlive = role == Role.LEADER || (leaderId != null
+                && System.nanoTime() - lastLeaderContactNanos < TimeUnit.MILLISECONDS.toNanos(config.electionTimeoutMinMs()));
+        return request.term() > currentTerm && logOk && !leaderAlive;
+    }
+
     private void becomeLeader() {
         role = Role.LEADER;
         leaderId = config.nodeId();
+        long now = System.nanoTime();
         for (String peer : config.peerIds()) {
             nextIndex.put(peer, log.lastIndex() + 1);
             matchIndex.put(peer, 0L);
+            lastContactNanos.put(peer, now); // a full election timeout of grace to reach them
         }
         // A no-op from the new term lets earlier entries commit (5.4.2), and tells us when
         // our state machine is fully caught up and safe to read from.
@@ -307,6 +387,7 @@ public final class RaftNode implements AutoCloseable {
                 if (role != Role.LEADER || currentTerm != request.term()) {
                     continue; // the answer is about a leadership we no longer hold
                 }
+                lastContactNanos.put(peer, System.nanoTime()); // any answer in our term counts
                 if (response.success()) {
                     matchIndex.put(peer, Math.max(matchIndex.get(peer), response.matchIndex()));
                     nextIndex.put(peer, matchIndex.get(peer) + 1);
@@ -338,6 +419,7 @@ public final class RaftNode implements AutoCloseable {
                 stepDown(request.term());
             }
             leaderId = request.leaderId();
+            lastLeaderContactNanos = System.nanoTime();
             resetElectionTimer();
 
             long prev = request.prevLogIndex();
@@ -382,6 +464,22 @@ public final class RaftNode implements AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Leader only: whether a majority (this node included) has answered within the
+     * longest election timeout. If not, the others have had time to elect a new leader.
+     */
+    private boolean heardFromMajority() {
+        long window = TimeUnit.MILLISECONDS.toNanos(config.electionTimeoutMaxMs());
+        long now = System.nanoTime();
+        int heard = 1; // this node
+        for (long last : lastContactNanos.values()) {
+            if (now - last <= window) {
+                heard++;
+            }
+        }
+        return heard >= config.majority();
     }
 
     /** Leader only: commit the highest entry of this term that a majority stores (5.4.2). */

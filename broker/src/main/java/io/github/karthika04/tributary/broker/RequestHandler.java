@@ -95,7 +95,7 @@ final class RequestHandler {
                         r.partitions()));
                 case Request.RaftVote r -> {
                     VoteResponse vote = raft().handleVote(
-                            new VoteRequest(r.term(), r.candidateId(), r.lastLogIndex(), r.lastLogTerm()));
+                            new VoteRequest(r.term(), r.candidateId(), r.lastLogIndex(), r.lastLogTerm(), r.preVote()));
                     yield new Response.RaftVote(vote.term(), vote.granted());
                 }
                 case Request.RaftAppend r -> {

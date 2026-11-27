@@ -41,7 +41,8 @@ class CodecTest {
                 new Request.CommitOffsets("billing", "billing-1234", List.of(
                         new PartitionOffset("orders", 0, 42), new PartitionOffset("orders", 2, 7))),
                 new Request.FetchOffsets("billing", List.of(new TopicPartition("orders", 1))),
-                new Request.RaftVote(7, "n2", 41, 6),
+                new Request.RaftVote(7, "n2", 41, 6, false),
+                new Request.RaftVote(8, "n3", 41, 6, true),
                 new Request.RaftAppend(7, "n1", 40, 6, List.of(new RaftEntry(7, bytes("cmd")),
                         new RaftEntry(7, new byte[0])), 39),
                 new Request.RaftAppend(8, "n3", 0, 0, List.of(), 0));

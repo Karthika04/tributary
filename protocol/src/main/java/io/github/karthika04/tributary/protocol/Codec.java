@@ -93,6 +93,7 @@ public final class Codec {
                     Wire.writeString(out, r.candidateId());
                     out.writeLong(r.lastLogIndex());
                     out.writeLong(r.lastLogTerm());
+                    out.writeBoolean(r.preVote());
                 }
                 case Request.RaftAppend r -> {
                     out.writeLong(r.term());
@@ -158,7 +159,7 @@ public final class Codec {
                         Wire.readPartitionOffsets(in));
                 case FETCH_OFFSETS -> new Request.FetchOffsets(Wire.readString(in), Wire.readTopicPartitions(in));
                 case RAFT_VOTE -> new Request.RaftVote(in.readLong(), Wire.readString(in), in.readLong(),
-                        in.readLong());
+                        in.readLong(), in.readBoolean());
                 case RAFT_APPEND -> {
                     long term = in.readLong();
                     String leaderId = Wire.readString(in);

@@ -43,7 +43,7 @@ final class BrokerRaftTransport implements RaftTransport, AutoCloseable {
     @Override
     public VoteResponse requestVote(String peerId, VoteRequest r) throws IOException {
         Response.RaftVote response = (Response.RaftVote) call(voteClients, peerId,
-                new Request.RaftVote(r.term(), r.candidateId(), r.lastLogIndex(), r.lastLogTerm()));
+                new Request.RaftVote(r.term(), r.candidateId(), r.lastLogIndex(), r.lastLogTerm(), r.preVote()));
         return new VoteResponse(response.term(), response.granted());
     }
 

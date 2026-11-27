@@ -126,8 +126,12 @@ public sealed interface Request {
         }
     }
 
-    /** Broker to broker: Raft RequestVote. */
-    record RaftVote(long term, String candidateId, long lastLogIndex, long lastLogTerm) implements Request {
+    /**
+     * Broker to broker: Raft RequestVote. With {@code preVote}, it only asks whether the
+     * node would vote, changing nothing (Raft thesis section 9.6).
+     */
+    record RaftVote(long term, String candidateId, long lastLogIndex, long lastLogTerm, boolean preVote)
+            implements Request {
         @Override
         public ApiKey apiKey() {
             return ApiKey.RAFT_VOTE;

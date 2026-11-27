@@ -20,7 +20,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -93,9 +92,9 @@ class RaftNodeTest {
             long term = follower.currentTerm();
             long lastIndex = follower.lastLogIndex();
 
-            VoteResponse empty = follower.handleVote(new VoteRequest(term + 5, "stale", 0, 0));
-            VoteResponse shorter = follower.handleVote(new VoteRequest(term + 6, "shorter", lastIndex - 1, term));
-            VoteResponse equal = follower.handleVote(new VoteRequest(term + 7, "equal", lastIndex, leader.currentTerm()));
+            VoteResponse empty = follower.handleVote(new VoteRequest(term + 5, "stale", 0, 0, false));
+            VoteResponse shorter = follower.handleVote(new VoteRequest(term + 6, "shorter", lastIndex - 1, term, false));
+            VoteResponse equal = follower.handleVote(new VoteRequest(term + 7, "equal", lastIndex, leader.currentTerm(), false));
 
             assertFalse(empty.granted(), "voted for a candidate with an empty log");
             assertFalse(shorter.granted(), "voted for a candidate missing the last entry");
@@ -206,14 +205,20 @@ class RaftNodeTest {
     }
 
     @Test
-    void anIsolatedLeaderCannotCommitAndItsUncommittedWorkIsDiscarded() throws Exception {
+    void anIsolatedLeaderStepsDownAndItsUncommittedWorkIsDiscarded() throws Exception {
         try (Cluster cluster = new Cluster(dir, 3)) {
             RaftNode oldLeader = cluster.awaitLeader();
             proposeAll(oldLeader, List.of("shared"));
 
             cluster.network.isolate(oldLeader.nodeId(), cluster.ids);
             CompletableFuture<Object> stranded = propose(oldLeader, "never-committed");
-            assertThrows(TimeoutException.class, () -> stranded.get(1, TimeUnit.SECONDS)); // no majority
+
+            // CheckQuorum: cut off from the majority, the leader gives up within about one
+            // election timeout (300 ms here), while still partitioned, and the waiting
+            // proposal fails fast instead of hanging until the network heals.
+            ExecutionException e = assertThrows(ExecutionException.class, () -> stranded.get(2, TimeUnit.SECONDS));
+            assertTrue(e.getCause() instanceof NotLeaderException);
+            assertFalse(oldLeader.isLeader(), "an isolated leader must step down before the heal");
 
             List<String> majority = new ArrayList<>(cluster.ids);
             majority.remove(oldLeader.nodeId());
@@ -221,12 +226,50 @@ class RaftNodeTest {
             proposeAll(newLeader, List.of("from-the-majority"));
 
             cluster.network.healAll();
-            await(() -> !oldLeader.isLeader(), "the old leader to step down");
-            ExecutionException e = assertThrows(ExecutionException.class, () -> stranded.get(5, TimeUnit.SECONDS));
-            assertTrue(e.getCause() instanceof NotLeaderException);
             for (String id : cluster.ids) {
                 awaitApplied(cluster, id, List.of("shared", "from-the-majority"));
             }
+        }
+    }
+
+    @Test
+    void aFollowerReturningFromAPartitionDoesNotDisruptTheLeader() throws Exception {
+        try (Cluster cluster = new Cluster(dir, 3)) {
+            RaftNode leader = cluster.awaitLeader();
+            long term = leader.currentTerm();
+            String away = cluster.ids.stream().filter(id -> !id.equals(leader.nodeId())).findFirst().orElseThrow();
+
+            cluster.network.isolate(away, cluster.ids);
+            Thread.sleep(1_500); // five of its longest election timeouts
+            proposeAll(leader, List.of("while-away"));
+            cluster.network.healAll();
+            awaitApplied(cluster, away, List.of("while-away"));
+            Thread.sleep(500);
+
+            // PreVote: the isolated node never won a pre-vote, so it never raised its
+            // term, and coming back did not force a new election.
+            assertTrue(leader.isLeader(), "the leader was disrupted");
+            assertEquals(term, leader.currentTerm());
+            assertEquals(term, cluster.nodes.get(away).currentTerm());
+        }
+    }
+
+    @Test
+    void aPreVoteChangesNothingAndIsRefusedWhileTheLeaderIsAlive() throws Exception {
+        try (Cluster cluster = new Cluster(dir, 3)) {
+            RaftNode leader = cluster.awaitLeader();
+            proposeAll(leader, List.of("x"));
+            RaftNode follower = cluster.nodes.get(
+                    cluster.ids.stream().filter(id -> !id.equals(leader.nodeId())).findFirst().orElseThrow());
+            await(() -> follower.lastApplied() >= 2, "the follower to catch up");
+            long term = follower.currentTerm();
+
+            VoteResponse answer = follower.handleVote(
+                    new VoteRequest(term + 1, "eager", follower.lastLogIndex(), term, true));
+
+            assertFalse(answer.granted(), "the follower hears from a live leader");
+            assertEquals(term, follower.currentTerm(), "a pre-vote must not change the term");
+            assertTrue(leader.isLeader());
         }
     }
 
