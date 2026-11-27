@@ -5,9 +5,9 @@
 A distributed, fault-tolerant message queue built from scratch in Java, in the style of
 Apache Kafka.
 
-> **Status:** a working single-node message queue: crash-safe storage, a binary TCP
-> protocol, a broker with consumer groups, a Java client library and a CLI. Raft
-> replication across 3 nodes is in progress.
+> **Status:** a working replicated message queue: crash-safe storage, a binary TCP
+> protocol, a broker with consumer groups, a Java client library, a CLI, and a
+> 3-broker cluster that survives losing any broker, with Raft written from scratch.
 
 ## Try it in two minutes
 
@@ -41,6 +41,32 @@ tributary consume orders --group billing --print-metadata
 tributary lag billing orders
 ```
 
+### Run a 3-broker cluster and kill the leader
+
+```bash
+CLUSTER=1=localhost:9292,2=localhost:9293,3=localhost:9294
+export TRIBUTARY_BOOTSTRAP=localhost:9292,localhost:9293,localhost:9294
+
+# three terminals, one broker each
+broker/build/install/tributary-broker/bin/tributary-broker --node-id 1 --cluster $CLUSTER --data-dir ./n1
+broker/build/install/tributary-broker/bin/tributary-broker --node-id 2 --cluster $CLUSTER --data-dir ./n2
+broker/build/install/tributary-broker/bin/tributary-broker --node-id 3 --cluster $CLUSTER --data-dir ./n3
+
+# a fourth terminal (with the same export)
+alias tributary=cli/build/install/tributary/bin/tributary
+tributary create-topic orders --partitions 1
+seq 1 5 | sed 's/^/order-/' | tributary produce orders
+```
+
+One broker logs `is the leader`. Press Ctrl+C in its terminal, then keep going:
+
+```bash
+seq 6 8 | sed 's/^/order-/' | tributary produce orders   # a new leader takes over in about a second
+tributary consume orders --from-beginning --max-messages 8  # all 8 are there
+```
+
+Start the stopped broker again and it catches up on everything it missed.
+
 ## Features
 
 **Storage engine** (`storage`)
@@ -49,6 +75,18 @@ tributary lag billing orders
 - CRC32C checksum on every record: damaged data raises an error, never returns silently
 - Crash recovery: half-written records are detected and cut off; every complete record survives
 - Retention by age or total size; batches spill across segments automatically
+
+**Replication** (`raft`, `broker`)
+- Raft written from scratch (paper section 5): randomized elections, the up-to-date
+  vote rule, log replication with conflict truncation, current-term commit rule,
+  leader no-op, crash-safe term and vote
+  ([why our own Raft?](docs/adr/0003-raft-from-scratch-single-group.md))
+- Every write (topics, records, committed offsets) is acknowledged only after a
+  majority of brokers stored it: no acknowledged write is lost when a broker dies
+- Followers redirect clients to the leader; the client fails over across brokers
+  on its own
+- Tested over a simulated network with crashes and partitions, including a randomized
+  chaos test, and with three real brokers whose leader is killed mid-stream
 
 **Broker** (`broker`)
 - Custom binary protocol over TCP with request versioning and correlation IDs
@@ -95,10 +133,11 @@ How and why it all works is explained in [docs/DESIGN.md](docs/DESIGN.md).
 ./gradlew build
 ```
 
-Compiles every module and runs 119 tests, including end-to-end tests against a real
-broker: long polling, restarts, retries while the broker is down, 50 concurrent
-clients, consumer-group rebalances and crashed members, zombie fencing, crash recovery
-and malformed network input. Reports land in each module's
+Compiles every module and runs 144 tests, including Raft safety under random crashes
+and partitions, a 3-broker cluster losing its leader in the middle of a stream of
+writes, and end-to-end tests against a real broker: long polling, restarts, retries
+while the broker is down, 50 concurrent clients, consumer-group rebalances and crashed
+members, zombie fencing, crash recovery and malformed network input. Reports land in each module's
 `build/reports/tests/test/index.html`.
 
 ## Project layout
@@ -106,7 +145,8 @@ and malformed network input. Reports land in each module's
 ```
 storage/    segmented, crash-safe commit log            (JDK only)
 protocol/   wire format, framing, compression, hashing  (JDK only)
-broker/     TCP server, topics, long polling, retention, consumer groups
+raft/       Raft consensus: elections, replication, safety  (uses storage)
+broker/     TCP server, topics, long polling, retention, consumer groups, cluster mode
 client/     TributaryClient, Producer, Consumer
 cli/        the `tributary` command-line tool
 docs/       design document and architecture decision records
@@ -117,7 +157,8 @@ docs/       design document and architecture decision records
 - [x] Storage engine: segments, index, crash recovery, retention
 - [x] Broker, binary protocol, Java client library, CLI
 - [x] Consumer groups with committed offsets
-- [ ] 3-node replication with Raft (Apache Ratis)
+- [x] 3-broker replication with Raft, written from scratch
+- [ ] Raft snapshots and log compaction
 - [ ] Chaos testing: node kills, network partitions
 - [ ] Metrics (Prometheus, Grafana) and benchmarks
 - [ ] Docker Compose cluster

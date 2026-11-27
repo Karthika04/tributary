@@ -4,7 +4,8 @@ Tributary is a distributed, fault-tolerant message queue in the style of Apache 
 written from scratch in Java. This document explains what it does, how it is built,
 and why each major decision was made.
 
-Status: **v3: storage engine, wire protocol, broker, client library, CLI and consumer groups complete.**
+Status: **v4: storage engine, wire protocol, broker, client library, CLI, consumer groups
+and Raft replication across a 3-broker cluster complete.**
 Later sections are marked *planned*.
 
 ## 1. Goals
@@ -13,8 +14,9 @@ Later sections are marked *planned*.
   message gets a unique, increasing offset; consumers read from any offset.
 - **Survive crashes.** After a process crash or power loss, no acknowledged message is
   lost or corrupted, and damaged data is detected rather than returned.
-- **Survive machine failures** *(planned)*. Each partition is replicated to 3 nodes
-  with Raft, so the cluster keeps working when one node dies.
+- **Survive machine failures.** In a 3-broker cluster every write is replicated with
+  Raft before it is acknowledged, so the cluster keeps working, and loses nothing it
+  acknowledged, when any one broker dies.
 - **High throughput.** Batched writes, append-only files and an O(1) index.
 - **Evidence over claims.** Every guarantee above is backed by automated tests,
   including fault-injection ("chaos") tests *(planned)*.
@@ -50,11 +52,12 @@ Later sections are marked *planned*.
 |---|---|---|
 | `storage` | Segmented, crash-safe commit log | JDK only |
 | `protocol` | Message types, binary codec, framing, compression, partitioner | JDK only |
-| `broker` | TCP server, topics and partitions, long polling, retention, consumer groups | storage, protocol |
-| `client` | `TributaryClient`, batching `Producer`, polling `Consumer` | protocol |
+| `raft` | Raft consensus: elections, log replication, safety rules | storage |
+| `broker` | TCP server, topics and partitions, long polling, retention, consumer groups, cluster mode | storage, protocol, raft, client |
+| `client` | `TributaryClient`, batching `Producer`, polling `Consumer`, multi-broker failover | protocol |
 | `cli` | The `tributary` command-line tool | client |
 
-Planned: Raft replication (Phase 4).
+The broker uses the client library to talk to other brokers in a cluster (section 9).
 
 ## 4. Storage engine
 
@@ -287,6 +290,8 @@ which would break the log.
 
 A background thread calls `applyRetention()` on every partition on a timer
 (default every 60 s).
+In cluster mode retention is off, because deleting data on one broker would make it
+disagree with the others; see section 9.3.
 
 ## 7. Client library
 
@@ -383,11 +388,117 @@ the new owner starts from the last commit and some records are processed again. 
 are never skipped. The CLI's `--max-messages` rewinds positions for records it fetched
 but did not print, so even that never commits past unprocessed records.
 
-## 9. Testing
+## 9. Replication with Raft
 
-119 automated tests across the modules.
+Why our own Raft, and why one Raft group: [ADR 0003](adr/0003-raft-from-scratch-single-group.md).
 
-Storage (43), including:
+### 9.1 The idea
+
+Brokers in a cluster keep one shared, replicated log of *commands*: "create topic
+orders with 3 partitions", "append these records to orders-1 with timestamp T",
+"group billing committed offset 42 for orders-1". Raft makes every broker store the
+same commands in the same order. Each broker then *applies* the committed commands to
+its own local topics, using exactly the code a single broker uses. Same commands, same
+order, deterministic code: every broker ends up with byte-for-byte the same data.
+
+```
+  client --produce--> leader broker
+                        |  1. encode as a command, append to its Raft log
+                        |  2. send to followers (AppendEntries)        ---> follower 2
+                        |  3. a majority (2 of 3) has stored it: committed  ---> follower 3
+                        |  4. apply: append to local orders-1, get offset 17
+  client <--offset 17-- |  5. answer
+                        followers apply the same command when they learn it is committed
+```
+
+The leader only answers after step 3, so an acknowledged write is on at least two of
+the three machines. Any one can die and the write survives on a majority, and Raft's
+election rule (below) guarantees the next leader has it.
+
+### 9.2 The raft module
+
+`RaftNode` implements section 5 of the Raft paper:
+
+- **Terms and elections.** Each node waits a random 400 to 800 ms for a heartbeat. If
+  none arrives it becomes a candidate, increments its term and asks for votes. A node
+  votes at most once per term, and **only for a candidate whose log is at least as
+  up to date as its own** (higher last term, or same last term and at least as long).
+  This rule is what keeps committed entries from being lost: a committed entry is on a
+  majority, any winning candidate needs votes from a majority, the two overlap, and the
+  overlapping voter refuses a candidate that lacks the entry.
+- **Replication.** The leader runs one virtual thread per follower, sending
+  AppendEntries with the entries the follower is missing (up to 500 entries or 4 MB
+  per request) or an empty heartbeat every 100 ms. Each request carries the index and
+  term of the entry just before the new ones; a follower whose log disagrees there
+  refuses, with a hint of where its log ends, and the leader steps back. When a
+  follower has a conflicting entry (from an old leader that never committed it), it
+  truncates its log from that point and takes the leader's entries.
+- **Commit rule.** The leader commits an index once a majority has stored it, but
+  **only counts entries from its own term** (Raft figure 8). Older entries are
+  committed indirectly when a current-term entry after them commits. To make that
+  happen promptly, a new leader appends an empty *no-op* entry as soon as it wins.
+- **Safe reads.** A new leader may not yet know which entries are committed. It only
+  reports itself *ready* once its no-op is committed and applied, and the broker serves
+  clients only from a ready leader, so nobody reads stale data.
+- **Durability.** The current term and vote are written to `raft-meta` with a write to
+  a temporary file, `fsync`, and an atomic rename, so a crash can never leave a node
+  that voted twice in one term. The log itself is a Tributary storage `Log` with
+  `flushEveryAppend`, one record per entry (term plus command), so it inherits the
+  checksums and crash recovery from section 4.
+- **Applying.** A separate applier thread applies committed entries in order and
+  completes the `CompletableFuture` returned by `propose()` with the state machine's
+  result (for a produce, the base offset). If the node loses leadership first, the
+  future fails with `NotLeaderException`; the command may still commit under the next
+  leader, which is one source of at-least-once duplicates.
+
+Not implemented yet: snapshots and log compaction, membership changes, and pre-vote.
+
+### 9.3 Cluster mode in the broker
+
+Start each broker with the full member list:
+
+```bash
+tributary-broker --node-id 1 --cluster 1=host1:9292,2=host2:9292,3=host3:9292 --data-dir ./data
+```
+
+- **One port for everything.** Brokers send each other `RAFT_VOTE` and `RAFT_APPEND`
+  requests over the same Tributary protocol that clients use, through the client
+  library (`BrokerRaftTransport`). No second network stack.
+- **Writes go through a `Writes` interface.** A single broker uses `LocalWrites`
+  (straight to disk). A cluster member uses `RaftWrites`, which encodes the write as a
+  command (`Commands`), proposes it, and waits up to 10 seconds for it to commit. The
+  `ClusterStateMachine` decodes committed commands and hands them to `LocalWrites`.
+  The produce command carries the leader's timestamp, so every broker stores the same
+  `LogAppendTime`.
+- **Validation happens before proposing.** Bad topic names, unknown partitions and
+  oversized batches are rejected by the leader before anything enters the log. A
+  command that still fails when applied (say, two concurrent creates of the same
+  topic) fails the same way on every broker, so the brokers stay identical.
+- **Only the leader serves clients.** Everything else gets `NOT_LEADER` with
+  `leader is host:port`. A cluster produce is capped at 8 MB so its command fits in one
+  replication request.
+- **Local topics are rebuilt on start.** A cluster member deletes `data/state` on start
+  and replays the Raft log into it. That keeps it impossible for a broker's topics to
+  drift from the agreed log, at the cost of replay time (fixed later by snapshots).
+  Retention is off in cluster mode for the same reason.
+- **Groups.** Committed offsets are replicated (they are commands). Group membership
+  stays in the leader's memory, as in Kafka; after a failover members get
+  `UNKNOWN_MEMBER` once, rejoin, and resume from their committed offsets.
+
+### 9.4 The client side
+
+`ClientConfig` accepts a list of brokers (`--bootstrap h1:p1,h2:p2,h3:p3` on the CLI).
+On `NOT_LEADER` the client goes straight to the named leader; on a network error, a
+broker shutting down, or `NOT_LEADER` with no leader yet, it moves to the next broker
+with exponential backoff (100 ms, doubling, capped at 1 s), up to 5 attempts by default.
+The producer's own retries sit on top of that, so a producer rides through a leader
+election, which takes around a second, without the application noticing.
+
+## 10. Testing
+
+144 automated tests across the modules.
+
+Storage (46), including:
 
 - Every single-bit flip in a record is detected by the checksum.
 - A half-written record at the end of the file is dropped after a crash, and a
@@ -400,6 +511,8 @@ Storage (43), including:
 - 100,000 records across many segments read back exactly.
 - Retention by time and size, including across a restart.
 - A batch bigger than a segment continues across segments.
+- Truncating the tail (for Raft) works, survives a restart and a crash, and later
+  appends reuse the freed offsets.
 
 The storage tests were also checked by deliberately breaking the code (removing the
 truncation step, skipping crash recovery) and confirming the right tests fail.
@@ -408,11 +521,29 @@ Protocol (18): every message type round-trips with and without compression; cut-
 padded, wrong-version and lying-compression-size inputs are rejected; murmur2 matches
 Kafka's published values; keys spread evenly.
 
-Broker (17), against a real broker on a random port: topic errors; broker timestamps;
+Raft (12), over a simulated network: exactly one leader per term; a vote is refused to
+a candidate whose log is behind; a node that missed committed entries can never become
+leader; committed commands reach every node in order; followers refuse proposals and
+name the leader; a new leader keeps every committed command; an isolated leader cannot
+commit and its uncommitted entries are discarded when it rejoins; a lagging follower
+catches up; terms, votes and logs survive restarting every node; and a randomized
+chaos test (5 nodes, 25 rounds of crashes, restarts and partitions, fixed seed) checks
+after every round that no two nodes ever disagree on a committed entry. Breaking the
+vote rule on purpose makes three of these fail on every run.
+
+Cluster (7), with three real brokers on localhost: every broker ends up with identical
+data; a follower redirects clients to the leader; **killing the leader in the middle of
+300 writes loses none of the acknowledged ones**; a restarted broker catches up on
+what it missed, including topics created while it was down; the old leader rejoins as
+a follower; committed group offsets survive failover; without a majority nothing is
+acknowledged, and writes resume when a majority returns. Making the broker acknowledge
+a produce before it commits makes three of these fail.
+
+Broker (20), against a real broker on a random port: topic errors; broker timestamps;
 compression both ways; a waiting fetch returns as soon as data arrives and gives up on
 time; shutdown wakes waiting fetches; data survives a restart; background retention;
 50 concurrent clients; malformed requests get an error and the connection keeps
-working; garbage and oversized frames close the connection.
+working; garbage and oversized frames close the connection; cluster flag parsing.
 
 Client (12): every record gets a unique, dense offset; keyed records stay on their
 partition in order; unknown topics fail the future; the producer keeps retrying while
@@ -420,7 +551,7 @@ the broker is down and succeeds once it is back; the consumer reads every partit
 with no gaps; latest vs earliest; poll wakes on new data; seek; reset after retention
 deletes the position; compression end to end.
 
-Consumer groups (24): both assignors match Kafka's documented examples; every partition
+Consumer groups (23): both assignors match Kafka's documented examples; every partition
 is owned once; idle members when there are more members than partitions; rebalance on
 join, leave, subscription change and session expiry (with a controllable clock);
 zombie commits rejected; committed offsets survive a broker restart; internal topic
@@ -432,8 +563,10 @@ partitions move only after its session times out.
 CLI (6): create, list, produce from arguments and stdin, consume, consume with a group
 and resume, lag, offsets, error exit codes, unreachable broker.
 
-## 10. Planned
+## 11. Planned
 
-Raft replication with Apache Ratis (Phase 4), chaos testing (Phase 5), metrics and
-benchmarks (Phase 6), Docker packaging (Phase 7). Idempotent producers (to remove
-duplicates from retries) are a possible extension.
+Chaos testing of the real cluster: process kills and network partitions (Phase 5),
+metrics and benchmarks (Phase 6), Docker packaging (Phase 7). Raft snapshots and log
+compaction, so the Raft log stops growing and restarts stop replaying from the start.
+Per-partition leaders, to spread write load across brokers. Idempotent producers, to
+remove duplicates from retries.
