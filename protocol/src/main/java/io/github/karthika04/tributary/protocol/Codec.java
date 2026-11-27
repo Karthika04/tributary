@@ -63,6 +63,31 @@ public final class Codec {
                     Wire.writeString(out, r.topic());
                     out.writeInt(r.partition());
                 }
+                case Request.JoinGroup r -> {
+                    Wire.writeString(out, r.groupId());
+                    Wire.writeString(out, r.memberId());
+                    Wire.writeStrings(out, r.topics());
+                    out.writeInt(r.sessionTimeoutMs());
+                    Wire.writeString(out, r.assignor());
+                }
+                case Request.Heartbeat r -> {
+                    Wire.writeString(out, r.groupId());
+                    Wire.writeString(out, r.memberId());
+                    out.writeInt(r.generation());
+                }
+                case Request.LeaveGroup r -> {
+                    Wire.writeString(out, r.groupId());
+                    Wire.writeString(out, r.memberId());
+                }
+                case Request.CommitOffsets r -> {
+                    Wire.writeString(out, r.groupId());
+                    Wire.writeString(out, r.memberId());
+                    Wire.writePartitionOffsets(out, r.offsets());
+                }
+                case Request.FetchOffsets r -> {
+                    Wire.writeString(out, r.groupId());
+                    Wire.writeTopicPartitions(out, r.partitions());
+                }
             }
             return bytes.toByteArray();
         } catch (IOException e) {
@@ -107,6 +132,13 @@ public final class Codec {
                 case FETCH -> new Request.Fetch(Wire.readString(in), in.readInt(), in.readLong(),
                         in.readInt(), in.readInt(), Compression.fromCode(in.readByte()));
                 case LIST_OFFSETS -> new Request.ListOffsets(Wire.readString(in), in.readInt());
+                case JOIN_GROUP -> new Request.JoinGroup(Wire.readString(in), Wire.readString(in),
+                        Wire.readStrings(in), in.readInt(), Wire.readString(in));
+                case HEARTBEAT -> new Request.Heartbeat(Wire.readString(in), Wire.readString(in), in.readInt());
+                case LEAVE_GROUP -> new Request.LeaveGroup(Wire.readString(in), Wire.readString(in));
+                case COMMIT_OFFSETS -> new Request.CommitOffsets(Wire.readString(in), Wire.readString(in),
+                        Wire.readPartitionOffsets(in));
+                case FETCH_OFFSETS -> new Request.FetchOffsets(Wire.readString(in), Wire.readTopicPartitions(in));
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the request");
@@ -151,6 +183,19 @@ public final class Codec {
                         out.writeLong(r.startOffset());
                         out.writeLong(r.endOffset());
                     }
+                    case Response.JoinGroup r -> {
+                        Wire.writeString(out, r.memberId());
+                        out.writeInt(r.generation());
+                        Wire.writeTopicPartitions(out, r.assignment());
+                    }
+                    case Response.Heartbeat r -> {
+                        // no body
+                    }
+                    case Response.LeaveGroup r -> {
+                        // no body
+                    }
+                    case Response.CommitOffsets r -> Wire.writeTopicPartitions(out, r.rejected());
+                    case Response.FetchOffsets r -> Wire.writePartitionOffsets(out, r.offsets());
                 }
             }
             return bytes.toByteArray();
@@ -186,6 +231,12 @@ public final class Codec {
                 case PRODUCE -> new Response.Produce(in.readLong());
                 case FETCH -> new Response.Fetch(in.readLong(), in.readLong(), RecordBlocks.readFetched(in));
                 case LIST_OFFSETS -> new Response.ListOffsets(in.readLong(), in.readLong());
+                case JOIN_GROUP -> new Response.JoinGroup(Wire.readString(in), in.readInt(),
+                        Wire.readTopicPartitions(in));
+                case HEARTBEAT -> new Response.Heartbeat();
+                case LEAVE_GROUP -> new Response.LeaveGroup();
+                case COMMIT_OFFSETS -> new Response.CommitOffsets(Wire.readTopicPartitions(in));
+                case FETCH_OFFSETS -> new Response.FetchOffsets(Wire.readPartitionOffsets(in));
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the response");

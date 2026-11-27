@@ -33,7 +33,14 @@ class CodecTest {
                 new Request.CreateTopic("orders", 3),
                 new Request.Metadata(),
                 new Request.Fetch("orders", 2, 41, 500, 1000, Compression.GZIP),
-                new Request.ListOffsets("orders", 1));
+                new Request.ListOffsets("orders", 1),
+                new Request.JoinGroup("billing", null, List.of("orders", "payments"), 10_000, "range"),
+                new Request.JoinGroup("billing", "billing-1234", List.of("orders"), 30_000, "roundrobin"),
+                new Request.Heartbeat("billing", "billing-1234", 3),
+                new Request.LeaveGroup("billing", "billing-1234"),
+                new Request.CommitOffsets("billing", "billing-1234", List.of(
+                        new PartitionOffset("orders", 0, 42), new PartitionOffset("orders", 2, 7))),
+                new Request.FetchOffsets("billing", List.of(new TopicPartition("orders", 1))));
         for (Request request : requests) {
             assertEquals(request, roundTrip(request));
         }
@@ -60,7 +67,14 @@ class CodecTest {
                 new Response.Fetch(3, 10, List.of(
                         new FetchedRecord(3, 100, bytes("k"), bytes("v")),
                         new FetchedRecord(4, 101, null, bytes("w")))),
-                new Response.ListOffsets(5, 9));
+                new Response.ListOffsets(5, 9),
+                new Response.JoinGroup("billing-1234", 4, List.of(
+                        new TopicPartition("orders", 0), new TopicPartition("payments", 2))),
+                new Response.JoinGroup("billing-5678", 4, List.of()),
+                new Response.Heartbeat(),
+                new Response.LeaveGroup(),
+                new Response.CommitOffsets(List.of(new TopicPartition("orders", 1))),
+                new Response.FetchOffsets(List.of(new PartitionOffset("orders", 0, -1))));
         for (Response body : bodies) {
             for (Compression compression : Compression.values()) {
                 ResponseEnvelope decoded = roundTrip(ResponseEnvelope.success(99, body), compression);

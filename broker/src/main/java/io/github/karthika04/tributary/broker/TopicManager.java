@@ -106,12 +106,32 @@ final class TopicManager implements Closeable {
         return name != null && VALID_NAME.matcher(name).matches() && !name.equals(".") && !name.equals("..");
     }
 
+    /** Topics whose names start with "__" belong to the broker itself. */
+    static boolean isInternal(String topic) {
+        return topic.startsWith("__");
+    }
+
     /** Creating topics is rare, so one lock for all of them keeps it simple. */
     synchronized void createTopic(String topic, int partitionCount) {
         if (!isValidName(topic)) {
             throw new BrokerException(ErrorCode.INVALID_TOPIC, "invalid topic name '" + topic
                     + "': use 1-200 letters, digits, '.', '_' or '-'");
         }
+        if (isInternal(topic)) {
+            throw new BrokerException(ErrorCode.INVALID_TOPIC, "topic names starting with '__' are reserved");
+        }
+        createTopicUnchecked(topic, partitionCount);
+    }
+
+    /** Creates a broker-internal topic if it does not exist yet, and returns its partition 0. */
+    synchronized Partition internalTopic(String topic) {
+        if (!topics.containsKey(topic)) {
+            createTopicUnchecked(topic, 1);
+        }
+        return partition(topic, 0);
+    }
+
+    private void createTopicUnchecked(String topic, int partitionCount) {
         if (partitionCount < 1 || partitionCount > MAX_PARTITIONS) {
             throw new BrokerException(ErrorCode.INVALID_REQUEST,
                     "partitions must be between 1 and " + MAX_PARTITIONS + ", got " + partitionCount);
@@ -143,9 +163,22 @@ final class TopicManager implements Closeable {
         return partitions.get(partition);
     }
 
+    int partitionCount(String topic) {
+        List<Partition> partitions = topics.get(topic);
+        if (partitions == null) {
+            throw new BrokerException(ErrorCode.UNKNOWN_TOPIC, "topic '" + topic + "' does not exist");
+        }
+        return partitions.size();
+    }
+
+    /** Every topic except the broker's internal ones. */
     List<Response.TopicMetadata> metadata() {
         Map<String, Integer> sorted = new TreeMap<>();
-        topics.forEach((name, partitions) -> sorted.put(name, partitions.size()));
+        topics.forEach((name, partitions) -> {
+            if (!isInternal(name)) {
+                sorted.put(name, partitions.size());
+            }
+        });
         List<Response.TopicMetadata> result = new ArrayList<>();
         sorted.forEach((name, count) -> result.add(new Response.TopicMetadata(name, count)));
         return result;

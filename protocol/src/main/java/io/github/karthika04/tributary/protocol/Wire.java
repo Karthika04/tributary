@@ -4,6 +4,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Small helpers for the field types the protocol uses. All numbers are big-endian
@@ -73,5 +75,58 @@ final class Wire {
             throw new ProtocolException("invalid item count " + count);
         }
         return count;
+    }
+
+    // ---- lists ---------------------------------------------------------------------
+
+    static void writeStrings(DataOutputStream out, List<String> values) throws IOException {
+        out.writeInt(values.size());
+        for (String v : values) {
+            writeString(out, v);
+        }
+    }
+
+    static List<String> readStrings(DataInputStream in) throws IOException {
+        int count = readCount(in, 2);
+        List<String> values = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            values.add(readString(in));
+        }
+        return values;
+    }
+
+    static void writeTopicPartitions(DataOutputStream out, List<TopicPartition> values) throws IOException {
+        out.writeInt(values.size());
+        for (TopicPartition tp : values) {
+            writeString(out, tp.topic());
+            out.writeInt(tp.partition());
+        }
+    }
+
+    static List<TopicPartition> readTopicPartitions(DataInputStream in) throws IOException {
+        int count = readCount(in, 2 + 4);
+        List<TopicPartition> values = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            values.add(new TopicPartition(readString(in), in.readInt()));
+        }
+        return values;
+    }
+
+    static void writePartitionOffsets(DataOutputStream out, List<PartitionOffset> values) throws IOException {
+        out.writeInt(values.size());
+        for (PartitionOffset po : values) {
+            writeString(out, po.topic());
+            out.writeInt(po.partition());
+            out.writeLong(po.offset());
+        }
+    }
+
+    static List<PartitionOffset> readPartitionOffsets(DataInputStream in) throws IOException {
+        int count = readCount(in, 2 + 4 + 8);
+        List<PartitionOffset> values = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            values.add(new PartitionOffset(readString(in), in.readInt(), in.readLong()));
+        }
+        return values;
     }
 }

@@ -20,7 +20,13 @@ public enum ErrorCode {
     BROKER_SHUTTING_DOWN(10, true),
     INTERNAL_ERROR(11, true),
     /** Not sent by the broker: the client lost its connection or timed out. */
-    NETWORK_ERROR(12, true);
+    NETWORK_ERROR(12, true),
+    /** The group does not know this member: its session expired, or the broker restarted. Join again. */
+    UNKNOWN_MEMBER(13, false),
+    /** The group's partitions were reassigned since this member last joined. Join again. */
+    REBALANCE_IN_PROGRESS(14, false),
+    /** Invalid group id, or settings that clash with the group's existing members. */
+    INVALID_GROUP(15, false);
 
     private final short code;
     private final boolean retriable;

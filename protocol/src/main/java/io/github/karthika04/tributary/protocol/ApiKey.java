@@ -9,7 +9,12 @@ public enum ApiKey {
     METADATA(1),
     PRODUCE(2),
     FETCH(3),
-    LIST_OFFSETS(4);
+    LIST_OFFSETS(4),
+    JOIN_GROUP(5),
+    HEARTBEAT(6),
+    LEAVE_GROUP(7),
+    COMMIT_OFFSETS(8),
+    FETCH_OFFSETS(9);
 
     private final short code;
 

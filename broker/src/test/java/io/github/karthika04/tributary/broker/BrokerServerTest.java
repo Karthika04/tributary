@@ -96,6 +96,16 @@ class BrokerServerTest {
         }
     }
 
+    @Test
+    void theOffsetsTopicIsHiddenAndProtected() throws IOException {
+        try (BrokerServer broker = BrokerServer.start(config()); TributaryClient client = connect(broker)) {
+            assertEquals(Map.of(), client.listTopics());
+            assertEquals(ErrorCode.INVALID_TOPIC, errorOf(() -> client.createTopic("__consumer_offsets", 1)));
+            assertEquals(ErrorCode.INVALID_TOPIC, errorOf(() -> client.produce("__consumer_offsets", 0,
+                    records("forged commit"), Compression.NONE)));
+        }
+    }
+
     // ---- produce and fetch -------------------------------------------------------
 
     @Test

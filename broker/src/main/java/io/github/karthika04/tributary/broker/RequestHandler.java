@@ -1,6 +1,7 @@
 package io.github.karthika04.tributary.broker;
 
 import io.github.karthika04.tributary.protocol.ErrorCode;
+import io.github.karthika04.tributary.protocol.PartitionOffset;
 import io.github.karthika04.tributary.protocol.FetchedRecord;
 import io.github.karthika04.tributary.protocol.ProducedRecord;
 import io.github.karthika04.tributary.protocol.Request;
@@ -26,11 +27,13 @@ final class RequestHandler {
     private static final System.Logger LOG = System.getLogger(RequestHandler.class.getName());
 
     private final TopicManager topics;
+    private final GroupCoordinator groups;
     private final BrokerConfig config;
     private final Clock clock;
 
-    RequestHandler(TopicManager topics, BrokerConfig config, Clock clock) {
+    RequestHandler(TopicManager topics, GroupCoordinator groups, BrokerConfig config, Clock clock) {
         this.topics = topics;
+        this.groups = groups;
         this.config = config;
         this.clock = clock;
     }
@@ -51,6 +54,19 @@ final class RequestHandler {
                     Partition p = topics.partition(r.topic(), r.partition());
                     yield new Response.ListOffsets(p.startOffset(), p.endOffset());
                 }
+                case Request.JoinGroup r ->
+                        groups.join(r.groupId(), r.memberId(), r.topics(), r.sessionTimeoutMs(), r.assignor());
+                case Request.Heartbeat r -> {
+                    groups.heartbeat(r.groupId(), r.memberId(), r.generation());
+                    yield new Response.Heartbeat();
+                }
+                case Request.LeaveGroup r -> {
+                    groups.leave(r.groupId(), r.memberId());
+                    yield new Response.LeaveGroup();
+                }
+                case Request.CommitOffsets r -> commitOffsets(r);
+                case Request.FetchOffsets r -> new Response.FetchOffsets(groups.fetchOffsets(r.groupId(),
+                        r.partitions()));
             };
             return ResponseEnvelope.success(id, body);
         } catch (BrokerException e) {
@@ -75,9 +91,19 @@ final class RequestHandler {
         }
     }
 
+    private Response commitOffsets(Request.CommitOffsets r) {
+        for (PartitionOffset po : r.offsets()) {
+            topics.partition(po.topic(), po.partition()); // UNKNOWN_TOPIC / UNKNOWN_PARTITION
+        }
+        return new Response.CommitOffsets(groups.commit(r.groupId(), r.memberId(), r.offsets()));
+    }
+
     private Response produce(Request.Produce r) {
         if (r.records().isEmpty()) {
             throw new BrokerException(ErrorCode.INVALID_REQUEST, "produce request has no records");
+        }
+        if (TopicManager.isInternal(r.topic())) {
+            throw new BrokerException(ErrorCode.INVALID_TOPIC, "topic '" + r.topic() + "' is internal to the broker");
         }
         Partition partition = topics.partition(r.topic(), r.partition());
         long now = clock.millis();

@@ -45,6 +45,7 @@ public final class BrokerServer implements AutoCloseable {
 
     private final BrokerConfig config;
     private final TopicManager topics;
+    private final GroupCoordinator groups;
     private final RequestHandler handler;
     private final ServerSocket serverSocket;
     private final ExecutorService connectionThreads = Executors.newVirtualThreadPerTaskExecutor();
@@ -56,7 +57,14 @@ public final class BrokerServer implements AutoCloseable {
     private BrokerServer(BrokerConfig config, Clock clock) throws IOException {
         this.config = config;
         this.topics = new TopicManager(config.dataDir(), config.logConfig());
-        this.handler = new RequestHandler(topics, config, clock);
+        try {
+            OffsetStore offsets = new OffsetStore(topics.internalTopic(OffsetStore.TOPIC), clock);
+            this.groups = new GroupCoordinator(topics, offsets, clock);
+        } catch (RuntimeException e) {
+            topics.close();
+            throw e;
+        }
+        this.handler = new RequestHandler(topics, groups, config, clock);
         try {
             this.serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
@@ -72,6 +80,8 @@ public final class BrokerServer implements AutoCloseable {
         });
         housekeeping.scheduleWithFixedDelay(this::runRetention, config.retentionCheckIntervalMs(),
                 config.retentionCheckIntervalMs(), TimeUnit.MILLISECONDS);
+        housekeeping.scheduleWithFixedDelay(this::expireGroupMembers, config.groupCheckIntervalMs(),
+                config.groupCheckIntervalMs(), TimeUnit.MILLISECONDS);
         this.acceptThread = Thread.ofPlatform().name("tributary-accept").start(this::acceptLoop);
     }
 
@@ -137,6 +147,18 @@ public final class BrokerServer implements AutoCloseable {
         } finally {
             openSockets.remove(socket);
         }
+    }
+
+    private void expireGroupMembers() {
+        try {
+            groups.expireMembers();
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "consumer group check failed", e);
+        }
+    }
+
+    GroupCoordinator groups() {
+        return groups;
     }
 
     private void runRetention() {

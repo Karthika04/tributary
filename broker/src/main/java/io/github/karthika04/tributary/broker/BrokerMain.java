@@ -44,7 +44,7 @@ public final class BrokerMain {
             stopped.countDown();
         }, "tributary-shutdown"));
         System.out.println("Tributary broker listening on port " + broker.port()
-                + ", data in " + config.dataDir().toAbsolutePath());
+                + ", data in " + config.dataDir().toAbsolutePath().normalize());
         stopped.await();
     }
 

@@ -63,4 +63,66 @@ public sealed interface Request {
             return ApiKey.LIST_OFFSETS;
         }
     }
+
+    /**
+     * Join a consumer group (or re-join after a rebalance).
+     *
+     * @param memberId          null for a brand-new member; the id the broker gave
+     *                          earlier when re-joining
+     * @param topics            the topics this member wants to read
+     * @param sessionTimeoutMs  if no heartbeat arrives for this long, the member is
+     *                          considered dead and its partitions are reassigned
+     * @param assignor          "range" or "roundrobin": how partitions are divided
+     */
+    record JoinGroup(String groupId, String memberId, List<String> topics, int sessionTimeoutMs, String assignor)
+            implements Request {
+        public JoinGroup {
+            topics = List.copyOf(topics);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.JOIN_GROUP;
+        }
+    }
+
+    /** "I am still alive." Also how a member learns that a rebalance happened. */
+    record Heartbeat(String groupId, String memberId, int generation) implements Request {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.HEARTBEAT;
+        }
+    }
+
+    /** Leave the group now, so its partitions move to other members right away. */
+    record LeaveGroup(String groupId, String memberId) implements Request {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.LEAVE_GROUP;
+        }
+    }
+
+    /** Save the group's progress. Only the member that owns a partition may commit it. */
+    record CommitOffsets(String groupId, String memberId, List<PartitionOffset> offsets) implements Request {
+        public CommitOffsets {
+            offsets = List.copyOf(offsets);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.COMMIT_OFFSETS;
+        }
+    }
+
+    /** Read a group's committed offsets. */
+    record FetchOffsets(String groupId, List<TopicPartition> partitions) implements Request {
+        public FetchOffsets {
+            partitions = List.copyOf(partitions);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.FETCH_OFFSETS;
+        }
+    }
 }

@@ -58,4 +58,60 @@ public sealed interface Response {
             return ApiKey.LIST_OFFSETS;
         }
     }
+
+    /**
+     * @param generation increases every time the group's partitions are reassigned
+     * @param assignment the partitions this member now owns
+     */
+    record JoinGroup(String memberId, int generation, List<TopicPartition> assignment) implements Response {
+        public JoinGroup {
+            assignment = List.copyOf(assignment);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.JOIN_GROUP;
+        }
+    }
+
+    record Heartbeat() implements Response {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.HEARTBEAT;
+        }
+    }
+
+    record LeaveGroup() implements Response {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.LEAVE_GROUP;
+        }
+    }
+
+    /**
+     * @param rejected partitions that were not saved because this member does not own
+     *                 them (any more). The rest were saved.
+     */
+    record CommitOffsets(List<TopicPartition> rejected) implements Response {
+        public CommitOffsets {
+            rejected = List.copyOf(rejected);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.COMMIT_OFFSETS;
+        }
+    }
+
+    /** One entry per requested partition; offset -1 if the group never committed it. */
+    record FetchOffsets(List<PartitionOffset> offsets) implements Response {
+        public FetchOffsets {
+            offsets = List.copyOf(offsets);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.FETCH_OFFSETS;
+        }
+    }
 }
