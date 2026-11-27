@@ -125,7 +125,26 @@ public final class ChaosCluster implements AutoCloseable {
             }
             Thread.sleep(50);
         }
-        throw new IllegalStateException("no leader within " + timeoutMs + " ms");
+        throw new IllegalStateException("no leader within " + timeoutMs + " ms\n" + diagnostics());
+    }
+
+    /** Which brokers are up, and the end of each one's log: what you need when a run gets stuck. */
+    public String diagnostics() {
+        StringBuilder out = new StringBuilder();
+        for (String id : IDS) {
+            BrokerProcess b = brokers.get(id);
+            out.append("broker ").append(id).append(b.isRunning() ? (b.isPaused() ? " (paused)" : " (running)") : " (not running)")
+                    .append(", log ").append(dir.resolve("broker-" + id + ".log")).append(":\n");
+            try {
+                List<String> lines = Files.readAllLines(dir.resolve("broker-" + id + ".log"));
+                for (String line : lines.subList(Math.max(0, lines.size() - 8), lines.size())) {
+                    out.append("    ").append(line).append('\n');
+                }
+            } catch (IOException e) {
+                out.append("    (no log: ").append(e.getMessage()).append(")\n");
+            }
+        }
+        return out.toString();
     }
 
     // ---- faults ------------------------------------------------------------------------
