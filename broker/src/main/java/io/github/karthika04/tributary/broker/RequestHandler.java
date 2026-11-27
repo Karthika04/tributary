@@ -1,8 +1,10 @@
 package io.github.karthika04.tributary.broker;
 
 import io.github.karthika04.tributary.protocol.ErrorCode;
-import io.github.karthika04.tributary.protocol.PartitionOffset;
+import io.github.karthika04.tributary.protocol.FetchPosition;
 import io.github.karthika04.tributary.protocol.FetchedRecord;
+import io.github.karthika04.tributary.protocol.PartitionOffset;
+import io.github.karthika04.tributary.protocol.PartitionRecords;
 import io.github.karthika04.tributary.protocol.RaftEntry;
 import io.github.karthika04.tributary.protocol.Request;
 import io.github.karthika04.tributary.protocol.RequestEnvelope;
@@ -22,6 +24,7 @@ import java.lang.System.Logger.Level;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Turns one decoded request into one response. This is the broker's business logic;
@@ -76,6 +79,7 @@ final class RequestHandler {
                 case Request.Metadata r -> new Response.Metadata(topics.metadata());
                 case Request.Produce r -> produce(r);
                 case Request.Fetch r -> fetch(r);
+                case Request.MultiFetch r -> multiFetch(r);
                 case Request.ListOffsets r -> {
                     Partition p = topics.partition(r.topic(), r.partition());
                     yield new Response.ListOffsets(p.startOffset(), p.endOffset());
@@ -188,5 +192,72 @@ final class RequestHandler {
             records.add(new FetchedRecord(s.offset(), s.timestamp(), s.key(), s.value()));
         }
         return new Response.Fetch(partition.startOffset(), partition.endOffset(), records);
+    }
+
+    /** Most partitions one multi-fetch may name. */
+    static final int MAX_MULTI_FETCH_PARTITIONS = 10_000;
+
+    /**
+     * Reads every requested partition; if none has records, waits for any append to any
+     * partition, then reads again, until something arrives or the wait runs out.
+     */
+    private Response multiFetch(Request.MultiFetch r) throws InterruptedException {
+        if (r.partitions().isEmpty() || r.partitions().size() > MAX_MULTI_FETCH_PARTITIONS || r.maxRecords() <= 0
+                || r.maxBytes() <= 0 || r.maxWaitMs() < 0) {
+            throw new BrokerException(ErrorCode.INVALID_REQUEST, "multi-fetch needs 1-" + MAX_MULTI_FETCH_PARTITIONS
+                    + " partitions, maxRecords > 0, maxBytes > 0 and maxWaitMs >= 0");
+        }
+        DataArrivals arrivals = topics.arrivals();
+        long remaining = TimeUnit.MILLISECONDS.toNanos(Math.min(r.maxWaitMs(), config.maxFetchWaitMs()));
+        while (true) {
+            long seen = arrivals.version(); // before reading, so no append can slip by unnoticed
+            List<PartitionRecords> result = readPartitions(r);
+            boolean worthAnswering = result.stream()
+                    .anyMatch(p -> !p.records().isEmpty() || p.error() != ErrorCode.NONE);
+            if (worthAnswering || remaining <= 0) {
+                return new Response.MultiFetch(result);
+            }
+            remaining = arrivals.awaitChange(seen, remaining);
+        }
+    }
+
+    private List<PartitionRecords> readPartitions(Request.MultiFetch r) {
+        int recordsLeft = Math.min(r.maxRecords(), config.maxFetchRecords());
+        long bytesLeft = r.maxBytes();
+        boolean any = false;
+        List<PartitionRecords> result = new ArrayList<>(r.partitions().size());
+        for (FetchPosition position : r.partitions()) {
+            Partition partition;
+            try {
+                partition = topics.partition(position.topic(), position.partition());
+            } catch (BrokerException e) {
+                result.add(new PartitionRecords(position.topic(), position.partition(), e.error(), 0, 0, List.of()));
+                continue;
+            }
+            List<FetchedRecord> records = new ArrayList<>();
+            ErrorCode error = ErrorCode.NONE;
+            if (recordsLeft > 0 && bytesLeft > 0) {
+                try {
+                    for (Record s : partition.read(position.offset(), recordsLeft, 0)) {
+                        long size = s.value().length + (s.key() == null ? 0 : s.key().length);
+                        if (any && size > bytesLeft) {
+                            bytesLeft = 0; // full: the rest waits for the next fetch
+                            break;
+                        }
+                        records.add(new FetchedRecord(s.offset(), s.timestamp(), s.key(), s.value()));
+                        bytesLeft -= size;
+                        recordsLeft--;
+                        any = true;
+                    }
+                } catch (OffsetOutOfRangeException e) {
+                    error = ErrorCode.OFFSET_OUT_OF_RANGE;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // cannot happen: a read with no wait does not block
+                }
+            }
+            result.add(new PartitionRecords(position.topic(), position.partition(), error, partition.startOffset(),
+                    partition.endOffset(), records));
+        }
+        return result;
     }
 }

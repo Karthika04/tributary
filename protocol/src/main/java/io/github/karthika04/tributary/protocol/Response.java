@@ -115,6 +115,18 @@ public sealed interface Response {
         }
     }
 
+    /** The answer to a {@link Request.MultiFetch}: one entry per requested partition, in the same order. */
+    record MultiFetch(List<PartitionRecords> partitions) implements Response {
+        public MultiFetch {
+            partitions = List.copyOf(partitions);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.MULTI_FETCH;
+        }
+    }
+
     record RaftVote(long term, boolean granted) implements Response {
         @Override
         public ApiKey apiKey() {

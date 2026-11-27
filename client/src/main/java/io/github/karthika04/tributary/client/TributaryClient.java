@@ -3,6 +3,7 @@ package io.github.karthika04.tributary.client;
 import io.github.karthika04.tributary.protocol.Codec;
 import io.github.karthika04.tributary.protocol.Compression;
 import io.github.karthika04.tributary.protocol.ErrorCode;
+import io.github.karthika04.tributary.protocol.FetchPosition;
 import io.github.karthika04.tributary.protocol.Frames;
 import io.github.karthika04.tributary.protocol.PartitionOffset;
 import io.github.karthika04.tributary.protocol.ProducedRecord;
@@ -106,6 +107,13 @@ public final class TributaryClient implements AutoCloseable {
     public Response.Fetch fetch(String topic, int partition, long offset, int maxRecords, int maxWaitMs,
                                 Compression compression) {
         return (Response.Fetch) send(new Request.Fetch(topic, partition, offset, maxRecords, maxWaitMs,
+                compression));
+    }
+
+    /** Fetches from many partitions at once; see {@link Request.MultiFetch}. */
+    public Response.MultiFetch multiFetch(List<FetchPosition> partitions, int maxRecords, int maxBytes, int maxWaitMs,
+                                          Compression compression) {
+        return (Response.MultiFetch) send(new Request.MultiFetch(partitions, maxRecords, maxBytes, maxWaitMs,
                 compression));
     }
 
@@ -213,7 +221,11 @@ public final class TributaryClient implements AutoCloseable {
         if (closed) {
             throw new IllegalStateException("client is closed");
         }
-        int extraWait = request instanceof Request.Fetch f ? f.maxWaitMs() : 0;
+        int extraWait = switch (request) {
+            case Request.Fetch f -> f.maxWaitMs();
+            case Request.MultiFetch f -> f.maxWaitMs();
+            default -> 0;
+        };
         int correlationId = nextCorrelationId++;
         ResponseEnvelope response;
         try {

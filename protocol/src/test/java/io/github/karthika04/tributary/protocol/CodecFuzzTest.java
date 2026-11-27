@@ -48,7 +48,9 @@ class CodecFuzzTest {
                 new Request.FetchOffsets("billing", List.of(new TopicPartition("orders", 1))),
                 new Request.RaftVote(7, "n2", 41, 6, false),
                 new Request.RaftAppend(7, "n1", 40, 6, List.of(new RaftEntry(7, bytes("cmd")),
-                        new RaftEntry(7, new byte[0])), 39)));
+                        new RaftEntry(7, new byte[0])), 39),
+                new Request.MultiFetch(List.of(new FetchPosition("orders", 0, 41), new FetchPosition("payments", 2, 0)),
+                        500, 4 * 1024 * 1024, 1000, Compression.GZIP)));
         for (Compression c : Compression.values()) {
             requests.add(new Request.Produce("events", 0, c, records));
         }
@@ -75,7 +77,11 @@ class CodecFuzzTest {
                 new Response.CommitOffsets(List.of(new TopicPartition("orders", 1))),
                 new Response.FetchOffsets(List.of(new PartitionOffset("orders", 0, -1))),
                 new Response.RaftVote(9, true),
-                new Response.RaftAppend(9, false, 12));
+                new Response.RaftAppend(9, false, 12),
+                new Response.MultiFetch(List.of(
+                        new PartitionRecords("orders", 0, ErrorCode.NONE, 3, 10, List.of(
+                                new FetchedRecord(3, 100, bytes("k"), bytes("v".repeat(200))))),
+                        new PartitionRecords("payments", 2, ErrorCode.OFFSET_OUT_OF_RANGE, 0, 0, List.of()))));
         List<byte[]> encoded = new ArrayList<>();
         for (Response body : bodies) {
             for (Compression c : Compression.values()) {

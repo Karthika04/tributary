@@ -45,7 +45,9 @@ class CodecTest {
                 new Request.RaftVote(8, "n3", 41, 6, true),
                 new Request.RaftAppend(7, "n1", 40, 6, List.of(new RaftEntry(7, bytes("cmd")),
                         new RaftEntry(7, new byte[0])), 39),
-                new Request.RaftAppend(8, "n3", 0, 0, List.of(), 0));
+                new Request.RaftAppend(8, "n3", 0, 0, List.of(), 0),
+                new Request.MultiFetch(List.of(new FetchPosition("orders", 0, 41), new FetchPosition("payments", 2, 0)),
+                        500, 4 * 1024 * 1024, 1000, Compression.GZIP));
         for (Request request : requests) {
             assertEquals(request, roundTrip(request));
         }
@@ -81,7 +83,11 @@ class CodecTest {
                 new Response.CommitOffsets(List.of(new TopicPartition("orders", 1))),
                 new Response.FetchOffsets(List.of(new PartitionOffset("orders", 0, -1))),
                 new Response.RaftVote(9, true),
-                new Response.RaftAppend(9, false, 12));
+                new Response.RaftAppend(9, false, 12),
+                new Response.MultiFetch(List.of(
+                        new PartitionRecords("orders", 0, ErrorCode.NONE, 3, 10, List.of(
+                                new FetchedRecord(3, 100, bytes("k"), bytes("v")))),
+                        new PartitionRecords("payments", 2, ErrorCode.OFFSET_OUT_OF_RANGE, 0, 0, List.of()))));
         for (Response body : bodies) {
             for (Compression compression : Compression.values()) {
                 ResponseEnvelope decoded = roundTrip(ResponseEnvelope.success(99, body), compression);

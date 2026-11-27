@@ -42,6 +42,7 @@ final class TopicManager implements Closeable {
     private final Path dataDir;
     private final LogConfig logConfig;
     private final ConcurrentHashMap<String, List<Partition>> topics = new ConcurrentHashMap<>();
+    private final DataArrivals arrivals = new DataArrivals();
 
     TopicManager(Path dataDir, LogConfig logConfig) {
         this.dataDir = dataDir;
@@ -99,7 +100,7 @@ final class TopicManager implements Closeable {
 
     private Partition openPartition(String topic, int partition) {
         Path dir = dataDir.resolve(topic).resolve(Integer.toString(partition));
-        return new Partition(new TopicPartition(topic, partition), Log.open(dir, logConfig));
+        return new Partition(new TopicPartition(topic, partition), Log.open(dir, logConfig), arrivals);
     }
 
     static boolean isValidName(String name) {
@@ -202,6 +203,12 @@ final class TopicManager implements Closeable {
 
     void stopWaiting() {
         topics.values().forEach(partitions -> partitions.forEach(Partition::stopWaiting));
+        arrivals.stop();
+    }
+
+    /** The signal raised by every append to any partition. */
+    DataArrivals arrivals() {
+        return arrivals;
     }
 
     @Override

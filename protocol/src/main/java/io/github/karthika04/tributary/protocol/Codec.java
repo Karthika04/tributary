@@ -107,6 +107,18 @@ public final class Codec {
                     }
                     out.writeLong(r.leaderCommit());
                 }
+                case Request.MultiFetch r -> {
+                    out.writeInt(r.partitions().size());
+                    for (FetchPosition p : r.partitions()) {
+                        Wire.writeString(out, p.topic());
+                        out.writeInt(p.partition());
+                        out.writeLong(p.offset());
+                    }
+                    out.writeInt(r.maxRecords());
+                    out.writeInt(r.maxBytes());
+                    out.writeInt(r.maxWaitMs());
+                    out.writeByte(r.compression().code());
+                }
             }
             return bytes.toByteArray();
         } catch (IOException e) {
@@ -177,6 +189,15 @@ public final class Codec {
                     }
                     yield new Request.RaftAppend(term, leaderId, prevLogIndex, prevLogTerm, entries, in.readLong());
                 }
+                case MULTI_FETCH -> {
+                    int count = Wire.readCount(in, 2 + 4 + 8);
+                    List<FetchPosition> positions = new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) {
+                        positions.add(new FetchPosition(Wire.readString(in), in.readInt(), in.readLong()));
+                    }
+                    yield new Request.MultiFetch(positions, in.readInt(), in.readInt(), in.readInt(),
+                            Compression.fromCode(in.readByte()));
+                }
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the request");
@@ -243,6 +264,17 @@ public final class Codec {
                         out.writeBoolean(r.success());
                         out.writeLong(r.matchIndex());
                     }
+                    case Response.MultiFetch r -> {
+                        out.writeInt(r.partitions().size());
+                        for (PartitionRecords p : r.partitions()) {
+                            Wire.writeString(out, p.topic());
+                            out.writeInt(p.partition());
+                            out.writeShort(p.error().code());
+                            out.writeLong(p.startOffset());
+                            out.writeLong(p.endOffset());
+                            RecordBlocks.writeFetched(out, fetchCompression, p.records());
+                        }
+                    }
                 }
             }
             return bytes.toByteArray();
@@ -286,6 +318,17 @@ public final class Codec {
                 case FETCH_OFFSETS -> new Response.FetchOffsets(Wire.readPartitionOffsets(in));
                 case RAFT_VOTE -> new Response.RaftVote(in.readLong(), in.readBoolean());
                 case RAFT_APPEND -> new Response.RaftAppend(in.readLong(), in.readBoolean(), in.readLong());
+                case MULTI_FETCH -> {
+                    // per partition: topic, partition, error, start, end, then a record block (at least 9 bytes)
+                    int count = Wire.readCount(in, 2 + 4 + 2 + 8 + 8 + 9);
+                    List<PartitionRecords> partitions = new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) {
+                        partitions.add(new PartitionRecords(Wire.readString(in), in.readInt(),
+                                ErrorCode.fromCode(in.readShort()), in.readLong(), in.readLong(),
+                                RecordBlocks.readFetched(in)));
+                    }
+                    yield new Response.MultiFetch(partitions);
+                }
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the response");

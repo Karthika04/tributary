@@ -56,6 +56,29 @@ public sealed interface Request {
         }
     }
 
+    /**
+     * Fetch from several partitions in one request, like Kafka's Fetch. The broker
+     * answers as soon as <em>any</em> of them has records, or when {@code maxWaitMs}
+     * runs out. A consumer with many partitions needs one waiting request instead of
+     * one per partition, and never waits on an empty partition while another has data.
+     *
+     * @param maxRecords  most records in the whole response
+     * @param maxBytes    stop adding records once the response holds this many bytes of
+     *                    keys and values (it always holds at least one record if any exist)
+     * @param compression how the broker should compress the records it sends back
+     */
+    record MultiFetch(List<FetchPosition> partitions, int maxRecords, int maxBytes, int maxWaitMs,
+                      Compression compression) implements Request {
+        public MultiFetch {
+            partitions = List.copyOf(partitions);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.MULTI_FETCH;
+        }
+    }
+
     /** Ask for the oldest and next offsets of a partition. */
     record ListOffsets(String topic, int partition) implements Request {
         @Override

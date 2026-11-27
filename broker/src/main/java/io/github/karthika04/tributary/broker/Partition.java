@@ -27,9 +27,12 @@ final class Partition implements Closeable {
     private final Condition newData = lock.newCondition();
     private volatile boolean stopping;
 
-    Partition(TopicPartition id, Log log) {
+    private final DataArrivals arrivals;
+
+    Partition(TopicPartition id, Log log, DataArrivals arrivals) {
         this.id = id;
         this.log = log;
+        this.arrivals = arrivals;
     }
 
     TopicPartition id() {
@@ -44,6 +47,7 @@ final class Partition implements Closeable {
         } finally {
             lock.unlock();
         }
+        arrivals.signal(); // wake multi-partition fetches too
         return baseOffset;
     }
 

@@ -171,6 +171,8 @@ public final class BrokerServer implements AutoCloseable {
                     RequestEnvelope request = Codec.decodeRequest(frame);
                     if (request.request() instanceof Request.Fetch fetch) {
                         compression = fetch.compression();
+                    } else if (request.request() instanceof Request.MultiFetch fetch) {
+                        compression = fetch.compression();
                     }
                     response = handler.handle(request);
                 } catch (RequestDecodeException e) {

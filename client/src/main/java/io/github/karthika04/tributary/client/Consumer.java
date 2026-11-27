@@ -1,8 +1,10 @@
 package io.github.karthika04.tributary.client;
 
 import io.github.karthika04.tributary.protocol.ErrorCode;
+import io.github.karthika04.tributary.protocol.FetchPosition;
 import io.github.karthika04.tributary.protocol.FetchedRecord;
 import io.github.karthika04.tributary.protocol.PartitionOffset;
+import io.github.karthika04.tributary.protocol.PartitionRecords;
 import io.github.karthika04.tributary.protocol.Response;
 import io.github.karthika04.tributary.protocol.TopicPartition;
 import java.time.Duration;
@@ -141,14 +143,20 @@ public final class Consumer implements AutoCloseable {
 
     // ---- polling -----------------------------------------------------------------
 
+    /** Most bytes of keys and values one fetch brings back, like Kafka's fetch.max.bytes. */
+    static final int FETCH_MAX_BYTES = 4 * 1024 * 1024;
+
     /**
      * Returns the next records, waiting up to {@code timeout} if none are available.
      * Returns an empty list if nothing arrives in time.
      *
-     * <p>First it asks every assigned partition for data without waiting, taking turns so
-     * a busy partition cannot starve the others. If all are caught up, it long-polls one
-     * partition (rotating each time) until data arrives or the time runs out. Group
-     * members also heartbeat, re-join and auto-commit here.
+     * <p>One multi-partition fetch asks every assigned partition at once, and the broker
+     * answers as soon as any of them has records. (An earlier version long-polled one
+     * partition at a time, so a record arriving on another partition could wait out the
+     * whole poll; the benchmarks showed it as ~200 ms latency spikes.) The starting
+     * partition rotates on each fetch, so a busy partition cannot starve the others when
+     * {@code maxPollRecords} is reached. Group members also heartbeat, re-join and
+     * auto-commit here.
      */
     public List<ConsumerRecord> poll(Duration timeout) {
         if (inGroup() ? subscriptions.isEmpty() : assignment.isEmpty()) {
@@ -160,7 +168,7 @@ public final class Consumer implements AutoCloseable {
                 maintainGroupMembership();
                 maybeAutoCommit();
             }
-            long remainingMs = Duration.ofNanos(deadline - System.nanoTime()).toMillis();
+            long remainingMs = Math.max(0, Duration.ofNanos(deadline - System.nanoTime()).toMillis());
             List<TopicPartition> partitions = new ArrayList<>(assignment);
             if (partitions.isEmpty()) {
                 // A group can have more members than partitions; idle members just keep heartbeating.
@@ -171,51 +179,50 @@ public final class Consumer implements AutoCloseable {
                 continue;
             }
 
-            List<ConsumerRecord> records = new ArrayList<>();
-            for (int i = 0; i < partitions.size() && records.size() < config.maxPollRecords(); i++) {
-                TopicPartition tp = partitions.get((nextPartitionIndex + i) % partitions.size());
-                fetchInto(tp, 0, records);
-            }
-            nextPartitionIndex = (nextPartitionIndex + 1) % partitions.size();
-            if (!records.isEmpty()) {
-                return records;
-            }
-            remainingMs = Duration.ofNanos(deadline - System.nanoTime()).toMillis();
-            if (remainingMs <= 0) {
-                return records;
-            }
             long wait = Math.min(remainingMs, config.fetchMaxWaitMs());
             if (inGroup()) {
                 wait = Math.min(wait, config.heartbeatIntervalMs()); // wake up in time to heartbeat
             }
-            fetchInto(partitions.get(nextPartitionIndex % partitions.size()), (int) wait, records);
-            if (!records.isEmpty()) {
+            List<ConsumerRecord> records = fetch(partitions, (int) wait);
+            if (!records.isEmpty() || System.nanoTime() >= deadline) {
                 return records;
             }
         }
     }
 
-    private void fetchInto(TopicPartition tp, int maxWaitMs, List<ConsumerRecord> out) {
-        long position = position(tp);
-        int room = config.maxPollRecords() - out.size();
-        Response.Fetch response;
-        try {
-            response = client.fetch(tp.topic(), tp.partition(), position, room, maxWaitMs,
-                    config.fetchCompression());
-        } catch (TributaryException e) {
-            if (e.error() == ErrorCode.OFFSET_OUT_OF_RANGE) {
+    private List<ConsumerRecord> fetch(List<TopicPartition> partitions, int maxWaitMs) {
+        List<FetchPosition> wanted = new ArrayList<>(partitions.size());
+        for (int i = 0; i < partitions.size(); i++) {
+            TopicPartition tp = partitions.get((nextPartitionIndex + i) % partitions.size());
+            wanted.add(new FetchPosition(tp.topic(), tp.partition(), position(tp)));
+        }
+        nextPartitionIndex = (nextPartitionIndex + 1) % partitions.size();
+
+        Response.MultiFetch response = client.multiFetch(wanted, config.maxPollRecords(), FETCH_MAX_BYTES, maxWaitMs,
+                config.fetchCompression());
+        List<ConsumerRecord> out = new ArrayList<>();
+        for (PartitionRecords p : response.partitions()) {
+            TopicPartition tp = new TopicPartition(p.topic(), p.partition());
+            if (!assignment.contains(tp)) {
+                continue; // reassigned while the fetch was out
+            }
+            if (p.error() == ErrorCode.OFFSET_OUT_OF_RANGE) {
                 // Our position was deleted by retention (or is past the end): start over
                 // according to the reset policy.
                 positions.put(tp, resetPosition(tp));
-                return;
+                continue;
             }
-            throw e;
+            if (p.error() != ErrorCode.NONE) {
+                throw new TributaryException(p.error(), "cannot fetch " + tp + ": " + p.error());
+            }
+            long position = position(tp);
+            for (FetchedRecord r : p.records()) {
+                out.add(new ConsumerRecord(tp.topic(), tp.partition(), r.offset(), r.timestamp(), r.key(), r.value()));
+                position = r.offset() + 1;
+            }
+            positions.put(tp, position);
         }
-        for (FetchedRecord r : response.records()) {
-            out.add(new ConsumerRecord(tp.topic(), tp.partition(), r.offset(), r.timestamp(), r.key(), r.value()));
-            position = r.offset() + 1;
-        }
-        positions.put(tp, position);
+        return out;
     }
 
     private long resetPosition(TopicPartition tp) {

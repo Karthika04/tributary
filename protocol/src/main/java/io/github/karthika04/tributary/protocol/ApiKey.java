@@ -16,7 +16,9 @@ public enum ApiKey {
     COMMIT_OFFSETS(8),
     FETCH_OFFSETS(9),
     RAFT_VOTE(10),
-    RAFT_APPEND(11);
+    RAFT_APPEND(11),
+    /** Fetch from many partitions at once; answered as soon as any of them has data. */
+    MULTI_FETCH(12);
 
     private final short code;
 
