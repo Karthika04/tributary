@@ -90,7 +90,11 @@ final class Wire {
         int count = readCount(in, 2);
         List<String> values = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            values.add(readString(in));
+            String value = readString(in);
+            if (value == null) {
+                throw new ProtocolException("a list of strings cannot contain null");
+            }
+            values.add(value);
         }
         return values;
     }

@@ -290,7 +290,9 @@ public final class Codec {
                 throw new ProtocolException(in.available() + " unexpected bytes after the response");
             }
             return new ResponseEnvelope(correlationId, apiKey, ErrorCode.NONE, null, body);
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
+            // IllegalArgumentException: well-formed bytes holding an invalid value, such
+            // as a topic partition with no topic. Found by CodecFuzzTest.
             throw new ProtocolException("malformed response: " + e, e);
         }
     }

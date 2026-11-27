@@ -27,6 +27,9 @@ final class RecordBlocks {
     private static final int MIN_PRODUCED_BYTES = 4 + 4;
     private static final int MIN_FETCHED_BYTES = 8 + 8 + 4 + 4;
 
+    /** Largest block a receiver will decompress: four times the default frame limit. */
+    static final int MAX_UNCOMPRESSED_BLOCK_BYTES = 64 * 1024 * 1024;
+
     private RecordBlocks() {
     }
 
@@ -140,25 +143,34 @@ final class RecordBlocks {
     /**
      * Decompresses, refusing to produce more than the declared size. Without this
      * limit a tiny malicious payload (a "zip bomb") could expand to gigabytes.
+     *
+     * <p>The output grows as data actually comes out of the decompressor, rather than
+     * being allocated at the declared size up front: an earlier version did that, and
+     * CodecFuzzTest found that a 150-byte message declaring 2 GB made the receiver
+     * allocate 2 GB, which is the very attack this method exists to stop.
      */
     private static byte[] gunzip(byte[] payload, int expectedSize) throws IOException {
-        byte[] raw = new byte[expectedSize];
+        if (expectedSize > MAX_UNCOMPRESSED_BLOCK_BYTES) {
+            throw new ProtocolException("compressed block declares " + expectedSize
+                    + " bytes uncompressed; the limit is " + MAX_UNCOMPRESSED_BLOCK_BYTES);
+        }
+        ByteArrayOutputStream raw = new ByteArrayOutputStream(Math.min(expectedSize, Math.max(256, payload.length * 4)));
+        byte[] chunk = new byte[8192];
         try (InputStream gz = new GZIPInputStream(new ByteArrayInputStream(payload))) {
-            int filled = 0;
-            while (filled < expectedSize) {
-                int n = gz.read(raw, filled, expectedSize - filled);
-                if (n < 0) {
-                    throw new ProtocolException("compressed block is shorter than declared");
+            int n;
+            while ((n = gz.read(chunk)) != -1) {
+                if (raw.size() + n > expectedSize) {
+                    throw new ProtocolException("compressed block is longer than declared");
                 }
-                filled += n;
+                raw.write(chunk, 0, n);
             }
-            if (gz.read() != -1) {
-                throw new ProtocolException("compressed block is longer than declared");
-            }
-        } catch (java.util.zip.ZipException e) {
+        } catch (java.util.zip.ZipException | java.io.EOFException e) {
             throw new ProtocolException("corrupt compressed block: " + e.getMessage(), e);
         }
-        return raw;
+        if (raw.size() != expectedSize) {
+            throw new ProtocolException("compressed block is shorter than declared");
+        }
+        return raw.toByteArray();
     }
 
     private static void expectEnd(DataInputStream body) throws IOException {
