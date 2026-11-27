@@ -55,12 +55,18 @@ final class GroupCoordinator {
 
     private final TopicManager topics;
     private final OffsetStore offsets;
+    private final Writes writes;
     private final Clock clock;
     private final Map<String, Group> groups = new HashMap<>();
 
-    GroupCoordinator(TopicManager topics, OffsetStore offsets, Clock clock) {
+    /**
+     * @param offsets where committed offsets are read from
+     * @param writes  how commits are saved (directly, or replicated through Raft first)
+     */
+    GroupCoordinator(TopicManager topics, OffsetStore offsets, Writes writes, Clock clock) {
         this.topics = topics;
         this.offsets = offsets;
+        this.writes = writes;
         this.clock = clock;
     }
 
@@ -152,7 +158,7 @@ final class GroupCoordinator {
                 rejected.add(po.topicPartition());
             }
         }
-        offsets.commit(groupId, accepted);
+        writes.commitOffsets(groupId, accepted);
         return rejected;
     }
 

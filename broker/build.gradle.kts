@@ -17,8 +17,8 @@ dependencies {
     // (tests in other modules, for example) needs storage on their classpath too.
     api(project(":storage"))
     implementation(project(":protocol"))
-
-    testImplementation(project(":client"))
+    implementation(project(":raft"))
+    implementation(project(":client")) // brokers talk to each other with the client library
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

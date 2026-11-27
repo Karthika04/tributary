@@ -33,7 +33,8 @@ class GroupCoordinatorTest {
 
     private GroupCoordinator start() {
         topics = new TopicManager(dataDir, LogConfig.defaults());
-        groups = new GroupCoordinator(topics, new OffsetStore(topics.internalTopic(OffsetStore.TOPIC), clock), clock);
+        OffsetStore offsets = new OffsetStore(topics.internalTopic(OffsetStore.TOPIC), clock);
+        groups = new GroupCoordinator(topics, offsets, new LocalWrites(topics, offsets), clock);
         return groups;
     }
 

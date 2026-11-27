@@ -18,13 +18,22 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import io.github.karthika04.tributary.raft.RaftConfig;
+import io.github.karthika04.tributary.raft.RaftNode;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 /**
  * The broker's network layer: accepts TCP connections and serves each one on its own
@@ -46,6 +55,8 @@ public final class BrokerServer implements AutoCloseable {
     private final BrokerConfig config;
     private final TopicManager topics;
     private final GroupCoordinator groups;
+    private final RaftNode raft; // null for a single broker
+    private final BrokerRaftTransport raftTransport;
     private final RequestHandler handler;
     private final ServerSocket serverSocket;
     private final ExecutorService connectionThreads = Executors.newVirtualThreadPerTaskExecutor();
@@ -56,30 +67,57 @@ public final class BrokerServer implements AutoCloseable {
 
     private BrokerServer(BrokerConfig config, Clock clock) throws IOException {
         this.config = config;
-        this.topics = new TopicManager(config.dataDir(), config.logConfig());
+        if (config.isClustered()) {
+            // A cluster member's topics are rebuilt from the replicated Raft log on every
+            // start, so they always match the other brokers exactly.
+            deleteRecursively(config.dataDir().resolve("state"));
+            this.topics = new TopicManager(config.dataDir().resolve("state"), config.logConfig());
+        } else {
+            this.topics = new TopicManager(config.dataDir(), config.logConfig());
+        }
+        RaftNode startedRaft = null;
+        BrokerRaftTransport startedTransport = null;
         try {
             OffsetStore offsets = new OffsetStore(topics.internalTopic(OffsetStore.TOPIC), clock);
-            this.groups = new GroupCoordinator(topics, offsets, clock);
-        } catch (RuntimeException e) {
-            topics.close();
-            throw e;
-        }
-        this.handler = new RequestHandler(topics, groups, config, clock);
-        try {
+            LocalWrites local = new LocalWrites(topics, offsets);
+            Writes writes = local;
+            if (config.isClustered()) {
+                Map<String, String> peers = new HashMap<>(config.clusterNodes());
+                peers.remove(config.nodeId());
+                startedTransport = new BrokerRaftTransport(config.nodeId(), peers);
+                RaftConfig raftConfig = RaftConfig.of(config.nodeId(), List.copyOf(peers.keySet()),
+                        config.dataDir().resolve("raft"));
+                startedRaft = RaftNode.start(raftConfig, startedTransport, new ClusterStateMachine(local));
+                writes = new RaftWrites(startedRaft, config.clusterNodes());
+            }
+            this.raft = startedRaft;
+            this.raftTransport = startedTransport;
+            this.groups = new GroupCoordinator(topics, offsets, writes, clock);
+            this.handler = new RequestHandler(topics, groups, writes, raft, config, clock);
             this.serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(config.port()));
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            if (startedRaft != null) {
+                startedRaft.close();
+            }
+            if (startedTransport != null) {
+                startedTransport.close();
+            }
             topics.close();
             throw e;
         }
         this.housekeeping = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "tributary-retention");
+            Thread t = new Thread(r, "tributary-housekeeping");
             t.setDaemon(true);
             return t;
         });
-        housekeeping.scheduleWithFixedDelay(this::runRetention, config.retentionCheckIntervalMs(),
-                config.retentionCheckIntervalMs(), TimeUnit.MILLISECONDS);
+        if (!config.isClustered()) {
+            // In a cluster, deleting data must itself be replicated (Raft log compaction),
+            // which Tributary does not do yet; see DESIGN.md.
+            housekeeping.scheduleWithFixedDelay(this::runRetention, config.retentionCheckIntervalMs(),
+                    config.retentionCheckIntervalMs(), TimeUnit.MILLISECONDS);
+        }
         housekeeping.scheduleWithFixedDelay(this::expireGroupMembers, config.groupCheckIntervalMs(),
                 config.groupCheckIntervalMs(), TimeUnit.MILLISECONDS);
         this.acceptThread = Thread.ofPlatform().name("tributary-accept").start(this::acceptLoop);
@@ -201,6 +239,9 @@ public final class BrokerServer implements AutoCloseable {
                 // already closed
             }
         }
+        if (raft != null) {
+            raft.close(); // fails writes still waiting for replication, so their requests end now
+        }
         topics.stopWaiting();
         connectionThreads.shutdown();
         try {
@@ -212,6 +253,30 @@ public final class BrokerServer implements AutoCloseable {
             Thread.currentThread().interrupt();
         }
         housekeeping.shutdownNow();
+        if (raftTransport != null) {
+            raftTransport.close();
+        }
         topics.close();
+    }
+
+    /** For tests: this broker's local copy of the topics. */
+    TopicManager topics() {
+        return topics;
+    }
+
+    /** For tests and tooling: this broker's Raft node, or null for a single broker. */
+    RaftNode raft() {
+        return raft;
+    }
+
+    private static void deleteRecursively(Path dir) throws IOException {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(dir)) {
+            for (Path p : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(p);
+            }
+        }
     }
 }

@@ -4,6 +4,8 @@ import io.github.karthika04.tributary.storage.LogConfig;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -12,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
  * <pre>
  * tributary-broker [--port 9292] [--data-dir ./data] [--retention-hours 168]
  *                  [--retention-bytes N] [--segment-bytes N] [--flush-every-append]
+ *                  [--node-id ID --cluster ID=host:port,ID=host:port,...]
  * </pre>
  *
  * Ctrl+C shuts it down gracefully.
@@ -44,15 +47,18 @@ public final class BrokerMain {
             stopped.countDown();
         }, "tributary-shutdown"));
         System.out.println("Tributary broker listening on port " + broker.port()
-                + ", data in " + config.dataDir().toAbsolutePath().normalize());
+                + ", data in " + config.dataDir().toAbsolutePath().normalize()
+                + (config.isClustered() ? ", node " + config.nodeId() + " of " + config.clusterNodes().size() : ""));
         stopped.await();
     }
 
     /** @return the config, or null if help was requested */
     static BrokerConfig parse(String[] args) {
-        int port = BrokerConfig.DEFAULT_PORT;
+        Integer port = null;
         Path dataDir = Path.of("data");
         LogConfig log = LogConfig.defaults();
+        String nodeId = null;
+        Map<String, String> cluster = Map.of();
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             switch (arg) {
@@ -66,10 +72,63 @@ public final class BrokerMain {
                 case "--retention-bytes" -> log = log.withRetentionBytes(Long.parseLong(value(args, ++i, arg)));
                 case "--segment-bytes" -> log = log.withSegmentBytes(Integer.parseInt(value(args, ++i, arg)));
                 case "--flush-every-append" -> log = log.withFlushEveryAppend(true);
+                case "--node-id" -> nodeId = value(args, ++i, arg);
+                case "--cluster" -> cluster = parseCluster(value(args, ++i, arg));
                 default -> throw new IllegalArgumentException("unknown option " + arg);
             }
         }
-        return BrokerConfig.defaults(dataDir).withPort(port).withLogConfig(log);
+        if (cluster.isEmpty() != (nodeId == null)) {
+            throw new IllegalArgumentException("--node-id and --cluster go together");
+        }
+        if (!cluster.isEmpty() && !cluster.containsKey(nodeId)) {
+            throw new IllegalArgumentException("--node-id " + nodeId + " is not in --cluster");
+        }
+        if (port == null) {
+            // A cluster member listens on the port the others know it by.
+            port = cluster.isEmpty() ? BrokerConfig.DEFAULT_PORT : portOf(cluster.get(nodeId));
+        }
+        BrokerConfig config = BrokerConfig.defaults(dataDir).withPort(port).withLogConfig(log);
+        return cluster.isEmpty() ? config : config.withCluster(nodeId, cluster);
+    }
+
+    /** Parses {@code 1=localhost:9292,2=localhost:9293}. */
+    static Map<String, String> parseCluster(String spec) {
+        Map<String, String> nodes = new LinkedHashMap<>();
+        for (String part : spec.split(",")) {
+            String entry = part.strip();
+            int eq = entry.indexOf('=');
+            if (eq <= 0 || eq == entry.length() - 1) {
+                throw new IllegalArgumentException("cluster entries look like ID=host:port, got '" + entry + "'");
+            }
+            String id = entry.substring(0, eq).strip();
+            String address = entry.substring(eq + 1).strip();
+            portOf(address); // validates it
+            if (nodes.put(id, address) != null) {
+                throw new IllegalArgumentException("node " + id + " is listed twice");
+            }
+        }
+        if (nodes.size() < 3) {
+            // With two nodes a majority is both, so losing either stops the cluster:
+            // no better than one broker, and easy to misread as fault tolerant.
+            throw new IllegalArgumentException("a cluster needs at least 3 nodes, got " + nodes.size());
+        }
+        return nodes;
+    }
+
+    private static int portOf(String address) {
+        int colon = address.lastIndexOf(':');
+        if (colon <= 0) {
+            throw new IllegalArgumentException("address must be host:port, got '" + address + "'");
+        }
+        try {
+            int port = Integer.parseInt(address.substring(colon + 1));
+            if (port < 1 || port > 65535) {
+                throw new NumberFormatException();
+            }
+            return port;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("bad port in '" + address + "'");
+        }
     }
 
     private static String value(String[] args, int index, String option) {
@@ -88,6 +147,10 @@ public final class BrokerMain {
                   --retention-bytes N    keep at most N bytes per partition (default: no limit)
                   --segment-bytes N      segment file size (default 64 MiB)
                   --flush-every-append   force every write to disk (slower, safest)
+                  --node-id ID           this broker's id in the cluster
+                  --cluster LIST         run as a replicated cluster, e.g.
+                                         1=localhost:9292,2=localhost:9293,3=localhost:9294
+                                         (the port defaults to this node's entry)
                   --help                 show this message""";
     }
 }

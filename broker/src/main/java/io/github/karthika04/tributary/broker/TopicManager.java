@@ -113,6 +113,12 @@ final class TopicManager implements Closeable {
 
     /** Creating topics is rare, so one lock for all of them keeps it simple. */
     synchronized void createTopic(String topic, int partitionCount) {
+        checkNewTopic(topic, partitionCount);
+        createTopicUnchecked(topic, partitionCount);
+    }
+
+    /** Throws the error that creating this topic would fail with, if any. */
+    void checkNewTopic(String topic, int partitionCount) {
         if (!isValidName(topic)) {
             throw new BrokerException(ErrorCode.INVALID_TOPIC, "invalid topic name '" + topic
                     + "': use 1-200 letters, digits, '.', '_' or '-'");
@@ -120,7 +126,13 @@ final class TopicManager implements Closeable {
         if (isInternal(topic)) {
             throw new BrokerException(ErrorCode.INVALID_TOPIC, "topic names starting with '__' are reserved");
         }
-        createTopicUnchecked(topic, partitionCount);
+        if (partitionCount < 1 || partitionCount > MAX_PARTITIONS) {
+            throw new BrokerException(ErrorCode.INVALID_REQUEST,
+                    "partitions must be between 1 and " + MAX_PARTITIONS + ", got " + partitionCount);
+        }
+        if (topics.containsKey(topic)) {
+            throw new BrokerException(ErrorCode.TOPIC_ALREADY_EXISTS, "topic '" + topic + "' already exists");
+        }
     }
 
     /** Creates a broker-internal topic if it does not exist yet, and returns its partition 0. */
@@ -132,13 +144,6 @@ final class TopicManager implements Closeable {
     }
 
     private void createTopicUnchecked(String topic, int partitionCount) {
-        if (partitionCount < 1 || partitionCount > MAX_PARTITIONS) {
-            throw new BrokerException(ErrorCode.INVALID_REQUEST,
-                    "partitions must be between 1 and " + MAX_PARTITIONS + ", got " + partitionCount);
-        }
-        if (topics.containsKey(topic)) {
-            throw new BrokerException(ErrorCode.TOPIC_ALREADY_EXISTS, "topic '" + topic + "' already exists");
-        }
         List<Partition> partitions = new ArrayList<>(partitionCount);
         try {
             for (int p = 0; p < partitionCount; p++) {
