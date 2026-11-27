@@ -157,13 +157,36 @@ broker allocate 2 GB. Details, outliers and the full results:
 chaos/build/install/chaos-runner/bin/chaos-runner --clusters 5 --rounds 7
 ```
 
+## Benchmarked
+
+`tributary-perf` measures throughput and latency percentiles (HdrHistogram, corrected
+for coordinated omission) against real brokers, and JMH benchmarks the storage log, the
+wire codec and the Raft command encoder. The first runs found four problems, now fixed:
+
+- a producer bug that let batches grow without limit until the broker refused them;
+- ~200 ms latency spikes from the consumer long-polling one partition at a time, fixed
+  with a multi-partition fetch (end-to-end p99 on a cluster: 16.7 ms to 12.2 ms, max
+  200 ms to 21 ms);
+- cluster throughput capped by one round trip per small batch (2x to 2.4x faster with
+  1 MB batches);
+- the Raft leader copying every command twice over while encoding, found with Java
+  Flight Recorder (encoding 3x faster).
+
+```bash
+./gradlew :bench:installDist
+bench/build/install/tributary-perf/bin/tributary-perf suite     # single broker and 3-broker cluster
+./gradlew :bench:jmh                                            # micro-benchmarks
+```
+
+Details and before/after numbers: [DESIGN.md section 11](docs/DESIGN.md#11-performance).
+
 ## Build and test
 
 ```bash
 ./gradlew build
 ```
 
-Compiles every module and runs 164 tests, including every chaos fault once against
+Compiles every module and runs 171 tests, including every chaos fault once against
 real broker processes, fuzzing of every decoder, Raft safety under random crashes
 and partitions, a 3-broker cluster losing its leader in the middle of a stream of
 writes, and end-to-end tests against a real broker: long polling, restarts, retries
@@ -181,6 +204,7 @@ broker/     TCP server, topics, long polling, retention, consumer groups, cluste
 client/     TributaryClient, Producer, Consumer
 cli/        the `tributary` command-line tool
 chaos/      chaos testing: broker processes, fault-injecting proxy, checker
+bench/      tributary-perf load generator and JMH micro-benchmarks
 docs/       design document and architecture decision records
 ```
 
@@ -192,7 +216,8 @@ docs/       design document and architecture decision records
 - [x] 3-broker replication with Raft, written from scratch
 - [ ] Raft snapshots and log compaction
 - [x] Chaos testing: kill -9, partitions, frozen processes, slow links; fuzzing
-- [ ] Metrics (Prometheus, Grafana) and benchmarks
+- [x] Benchmarks: load generator with latency percentiles, JMH, profiling-driven fixes
+- [ ] Metrics (Prometheus, Grafana) and structured logs
 - [ ] Docker Compose cluster
 
 ## License

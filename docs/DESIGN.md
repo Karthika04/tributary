@@ -58,6 +58,11 @@ Later sections are marked *planned*.
 | `client` | `TributaryClient`, batching `Producer`, polling `Consumer`, multi-broker failover | protocol |
 | `cli` | The `tributary` command-line tool | client |
 | `chaos` | Chaos testing: real broker processes, fault injection, a correctness checker | client, broker |
+| `bench` | `tributary-perf` load generator and JMH micro-benchmarks | client, chaos, broker; HdrHistogram, JMH |
+
+The core modules (storage, protocol, raft, broker, client) use only the JDK. Libraries
+are used for measuring and observing, never in the data path:
+[ADR 0005](adr/0005-libraries-only-for-measurement-and-observability.md).
 
 The broker uses the client library to talk to other brokers in a cluster (section 9).
 
@@ -209,13 +214,16 @@ response = [correlationId: int][apiKey: short][error: short][errorMessage: strin
 | LEAVE_GROUP | group, member id | (none) |
 | COMMIT_OFFSETS | group, member id, (topic, partition, offset) list | partitions rejected because not owned |
 | FETCH_OFFSETS | group, partitions | committed offset per partition (-1 if none) |
+| RAFT_VOTE | term, candidate, last log index and term, pre-vote flag | term, granted (broker to broker) |
+| RAFT_APPEND | term, leader, previous index and term, entries, leader commit | term, success, match index (broker to broker) |
+| MULTI_FETCH | (topic, partition, offset) list, maxRecords, maxBytes, maxWaitMs, compression | per partition: error, start, end, record block |
 
 - **correlationId:** chosen by the client and echoed by the broker, so a response can
   be matched to its request. The client checks it and drops the connection on a
   mismatch rather than ever handing back the wrong answer.
 - **version:** lets the protocol evolve without breaking old clients. Unknown versions
   get an `UNSUPPORTED_VERSION` error.
-- **errors:** 16 error codes, each marked retriable or not, so clients know whether
+- **errors:** 17 error codes besides `NONE`, each marked retriable or not, so clients know whether
   trying again could help. A body that cannot be decoded gets `INVALID_REQUEST` and the
   connection stays usable; an unreadable header closes the connection.
 
@@ -280,6 +288,13 @@ appends (or the wait runs out). New messages reach consumers within milliseconds
 idle consumers cost almost nothing. The check-then-wait happens under the same lock
 that `append` signals under, so a record cannot slip in unnoticed between them.
 
+The consumer uses `MULTI_FETCH`, which covers all its partitions in one request: the
+broker reads them all, and if none has records, waits on a broker-wide signal that
+every append raises (`DataArrivals`), then reads again. A version counter, read before
+the partitions are checked, keeps an append that lands in between from being missed.
+Before this, the consumer long-polled one partition at a time, so a record arriving on
+another partition waited out the whole poll (section 11).
+
 ### 6.5 Graceful shutdown
 
 On Ctrl+C (a JVM shutdown hook): stop accepting, close client sockets, wake every
@@ -299,16 +314,20 @@ disagree with the others; see section 9.3.
 
 - **`TributaryClient`:** one connection, connects lazily, reconnects after a network
   error, sends one request at a time.
-- **`Producer`:** `send()` returns a `CompletableFuture` immediately; a background
-  sender ships a partition's batch when it reaches `batchBytes` or has waited
-  `lingerMs`. Retriable errors are retried with exponential backoff (100 ms, 200 ms,
+- **`Producer`:** `send()` returns a `CompletableFuture` immediately. Each partition has
+  a queue of batches; when the newest reaches `batchBytes` (1 MB by default) a new one
+  is started, so no request outgrows that however fast records arrive. A background
+  sender ships a batch when it is full or has waited `lingerMs` (5 ms). If more than
+  `bufferBytes` (32 MB) are waiting, `send()` blocks until the sender catches up, and
+  after `maxBlockMs` fails with `PRODUCER_BUFFER_FULL`: backpressure, like Kafka's
+  `buffer.memory` and `max.block.ms`. Retriable errors are retried with exponential backoff (100 ms, 200 ms,
   400 ms... up to 5 s). Batches go out one at a time and a batch is retried before the
   next one is sent, so order within a partition is kept. Delivery is **at-least-once**:
   if a connection drops after the broker stored a batch but before the answer arrived,
   the retry stores it again.
-- **`Consumer`:** keeps a position per partition. `poll()` first asks every partition
-  for data without waiting (rotating the starting partition so none is starved), and if
-  all are caught up, long-polls one. If its position was deleted by retention it
+- **`Consumer`:** keeps a position per partition. `poll()` sends one `MULTI_FETCH` for
+  all its partitions, which the broker answers as soon as any has records, capped at
+  `maxPollRecords` and 4 MB (the starting partition rotates so none is starved). If its position was deleted by retention it
   resets to the oldest (or newest) offset, per `autoOffsetReset`. With a group id it
   becomes a group member (section 8); without one, partitions are chosen by hand and
   positions live only in memory.
@@ -661,9 +680,96 @@ Each bug's exact input is kept as a regression test. After the fixes, 300,000 da
 messages per decoder and 1,000,000 damaged record frames passed. The seed is fixed, and
 `-Dfuzz.iterations=N` runs longer.
 
-## 11. Testing
+## 11. Performance
 
-164 automated tests across the modules.
+### 11.1 Tools
+
+- **`tributary-perf`** (the `bench` module), a load generator like Kafka's
+  `producer-perf-test`. `suite` starts its own brokers (one, then a 3-broker cluster)
+  and runs throughput at max rate, latency at fixed rates, compression, and
+  end-to-end latency (producer to consumer), writing a CSV and a Markdown table.
+- **HdrHistogram** for latency percentiles: every value to 3 significant digits from
+  1 us to a minute in fixed memory, so p99.9 is trustworthy.
+- **Coordinated omission.** At a fixed rate, latency is measured from when a record was
+  *scheduled* to be sent, not from when it was. If the system stalls for a second, a
+  naive benchmark just sends nothing during it and records one slow request, hiding
+  the thousand requests a real client would have made in that second. Measuring from
+  the schedule counts every one of them.
+- **JMH** for micro-benchmarks of the storage log, the wire codec and the Raft command
+  encoder (`./gradlew :bench:jmh`). JMH warms the JIT up, runs each benchmark in a fresh
+  JVM, and keeps the JIT from deleting work whose result is unused, three ways a
+  hand-written timing loop goes wrong. Used directly rather than through a Gradle
+  plugin, so it cannot break the build on a new Gradle version.
+- **Java Flight Recorder** (built into the JDK) to profile brokers under load:
+  `--broker-jvm "-XX:StartFlightRecording=filename=broker.jfr,settings=profile"`.
+
+### 11.2 What the benchmarks found
+
+The first runs, on a 2-CPU Linux machine, turned up four problems:
+
+1. **Producer batches had no size limit (a bug).** While the sender was busy with one
+   request, `send()` kept adding to the partition's open batch, ignoring `batchBytes`.
+   At max rate a batch grew to megabytes, the broker refused the oversized request, and
+   every record in it failed: the suite reported 0 records/s for 1 KB and 10 KB
+   records, and 784,599 errors with GZIP. Fixed with a queue of batches per partition,
+   and the missing backpressure added (above). Two producer tests and the benchmark's
+   own smoke test fail without the fix.
+2. **The consumer's long poll caused ~200 ms latency spikes.** It waited on one
+   partition at a time, so a record arriving on another partition waited out the
+   whole poll. Fixed with `MULTI_FETCH` (section 6.4):
+
+   | End-to-end, 1,000 records/s | Before: p50 / p95 / p99 / max | After |
+   |---|---|---|
+   | Single broker | 4.6 / 11.9 / 12.6 / 200 ms | 3.5 / 5.7 / 6.8 / 14 ms |
+   | 3-broker cluster | 7.7 / 13.9 / 16.7 / 200 ms | 4.8 / 8.3 / 12.2 / 21 ms |
+
+3. **Cluster throughput was flat at about 20 MB/s for any record size.** A flat line
+   in MB/s points to a per-request limit. The producer has one request in flight, and
+   in a cluster each request waits for replication and a disk flush on a majority, so
+   throughput was about one 64 KB batch per round trip. Testing batch sizes confirmed
+   it (17 MB/s at 64 KB, 45 MB/s at 1 MB, and four producers barely added more), so the
+   default batch is now 1 MB; `lingerMs` still sends partial batches after 5 ms, and
+   latency at fixed rates did not change. The real fix, several requests in flight
+   per connection, needs idempotent producers to keep order across retries (section 13).
+
+   | Max-rate throughput | 64 KB batches | 1 MB batches |
+   |---|---:|---:|
+   | Single broker, 1 KB records | 155 MB/s | 198 MB/s |
+   | Single broker, 10 KB records | 200 MB/s | 234 MB/s |
+   | Cluster, 100 B records | 16 MB/s | 30 MB/s |
+   | Cluster, 1 KB records | 20 MB/s | 42 MB/s |
+   | Cluster, 10 KB records | 20 MB/s | 49 MB/s |
+
+4. **Profiling (JFR) found the leader copying every Raft command twice over.** Under
+   load the machine was CPU-bound (76% average, 96% peak), and about a third of the
+   leader's CPU samples were in `ByteArrayOutputStream` growing its buffer while
+   encoding produce commands. Encoding into a buffer of exactly the right size made
+   that 3x faster (about 540 to 175 us per 1 MB command; the JMH benchmark
+   `CommandsBenchmark` compares both). The profile also pointed at decoding, but a
+   faster decoder measured no different (the time there is copying the record bytes,
+   which any decoder must do), so it was reverted to the simpler code. A test pins the
+   encoded bytes to the old format, so Raft logs on disk still decode.
+
+One benchmark problem was found too: a latency run straight after a max-rate run
+measured the cluster still catching up (p99 of 207 ms instead of about 14 ms on
+reruns), so the suite now pauses between runs.
+
+### 11.3 Running it
+
+```bash
+./gradlew :bench:installDist
+bench/build/install/tributary-perf/bin/tributary-perf suite           # about 4 minutes
+bench/build/install/tributary-perf/bin/tributary-perf suite --scenarios end-to-end --deployments cluster
+./gradlew :bench:jmh                                                  # all micro-benchmarks
+./gradlew :bench:jmh -PjmhArgs="CommandsBenchmark"                    # just one
+```
+
+The numbers above come from a 2-CPU Linux container running four JVMs, so they are
+mostly useful as before and after comparisons; a laptop with more cores is faster.
+
+## 12. Testing
+
+171 automated tests across the modules.
 
 Storage (47), including:
 
@@ -712,13 +818,16 @@ a follower; committed group offsets survive failover; without a majority nothing
 acknowledged, and writes resume when a majority returns. Making the broker acknowledge
 a produce before it commits makes three of these fail.
 
-Broker (21), against a real broker on a random port: topic errors; broker timestamps;
+Broker (24), against a real broker on a random port: topic errors; broker timestamps;
 compression both ways; a waiting fetch returns as soon as data arrives and gives up on
 time; shutdown wakes waiting fetches; data survives a restart; background retention;
 50 concurrent clients; malformed requests get an error and the connection keeps
-working; garbage and oversized frames close the connection; cluster and peer-address flags.
+working; garbage and oversized frames close the connection; cluster and peer-address flags; the
+Raft produce command keeps its exact byte format, round-trips, and rejects a corrupt length.
 
-Client (12): every record gets a unique, dense offset; keyed records stay on their
+Client (14): every record gets a unique, dense offset; a flood of records is split into
+batches no bigger than `batchBytes` (a broker that refuses big requests still takes them
+all); `send()` blocks when the buffer is full and fails after `maxBlockMs`; keyed records stay on their
 partition in order; unknown topics fail the future; the producer keeps retrying while
 the broker is down and succeeds once it is back; the consumer reads every partition
 with no gaps; latest vs earliest; poll wakes on new data; seek; reset after retention
@@ -740,9 +849,16 @@ Chaos (12): the checker detects each kind of violation from hand-made data (who 
 the checker?); the proxy forwards, black-holes when cut, recovers when healed and
 delays when slowed; and every fault once against three real broker processes.
 
-## 12. Planned
+Benchmarks (2): short max-rate, fixed-rate and end-to-end runs of `tributary-perf`
+against a real broker must produce records with no errors and sane percentiles (the
+first run of the suite quietly reported 0 records/s, which is how the producer bug was
+found), and the Markdown table is right.
 
-Metrics and benchmarks (Phase 6), Docker packaging (Phase 7). Raft snapshots and log
+## 13. Planned
+
+Metrics, dashboards and structured logs (the rest of Phase 6), Docker packaging (Phase 7).
+Several produce requests in flight per connection with idempotent producers (sequence
+numbers per producer and partition, so retries cannot reorder or duplicate), which
+would lift the one-round-trip-per-batch limit of section 11.2. Raft snapshots and log
 compaction, so the Raft log stops growing and restarts stop replaying from the start.
-Per-partition leaders, to spread write load across brokers. Idempotent producers, to
-remove duplicates from retries.
+Per-partition leaders, to spread write load across brokers.
