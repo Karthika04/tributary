@@ -125,4 +125,25 @@ public sealed interface Request {
             return ApiKey.FETCH_OFFSETS;
         }
     }
+
+    /** Broker to broker: Raft RequestVote. */
+    record RaftVote(long term, String candidateId, long lastLogIndex, long lastLogTerm) implements Request {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.RAFT_VOTE;
+        }
+    }
+
+    /** Broker to broker: Raft AppendEntries. */
+    record RaftAppend(long term, String leaderId, long prevLogIndex, long prevLogTerm, List<RaftEntry> entries,
+                      long leaderCommit) implements Request {
+        public RaftAppend {
+            entries = List.copyOf(entries);
+        }
+
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.RAFT_APPEND;
+        }
+    }
 }

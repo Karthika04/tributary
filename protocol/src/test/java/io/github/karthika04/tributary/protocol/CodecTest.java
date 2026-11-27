@@ -40,7 +40,11 @@ class CodecTest {
                 new Request.LeaveGroup("billing", "billing-1234"),
                 new Request.CommitOffsets("billing", "billing-1234", List.of(
                         new PartitionOffset("orders", 0, 42), new PartitionOffset("orders", 2, 7))),
-                new Request.FetchOffsets("billing", List.of(new TopicPartition("orders", 1))));
+                new Request.FetchOffsets("billing", List.of(new TopicPartition("orders", 1))),
+                new Request.RaftVote(7, "n2", 41, 6),
+                new Request.RaftAppend(7, "n1", 40, 6, List.of(new RaftEntry(7, bytes("cmd")),
+                        new RaftEntry(7, new byte[0])), 39),
+                new Request.RaftAppend(8, "n3", 0, 0, List.of(), 0));
         for (Request request : requests) {
             assertEquals(request, roundTrip(request));
         }
@@ -74,7 +78,9 @@ class CodecTest {
                 new Response.Heartbeat(),
                 new Response.LeaveGroup(),
                 new Response.CommitOffsets(List.of(new TopicPartition("orders", 1))),
-                new Response.FetchOffsets(List.of(new PartitionOffset("orders", 0, -1))));
+                new Response.FetchOffsets(List.of(new PartitionOffset("orders", 0, -1))),
+                new Response.RaftVote(9, true),
+                new Response.RaftAppend(9, false, 12));
         for (Response body : bodies) {
             for (Compression compression : Compression.values()) {
                 ResponseEnvelope decoded = roundTrip(ResponseEnvelope.success(99, body), compression);

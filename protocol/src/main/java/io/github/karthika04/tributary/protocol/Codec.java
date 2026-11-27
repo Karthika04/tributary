@@ -88,6 +88,24 @@ public final class Codec {
                     Wire.writeString(out, r.groupId());
                     Wire.writeTopicPartitions(out, r.partitions());
                 }
+                case Request.RaftVote r -> {
+                    out.writeLong(r.term());
+                    Wire.writeString(out, r.candidateId());
+                    out.writeLong(r.lastLogIndex());
+                    out.writeLong(r.lastLogTerm());
+                }
+                case Request.RaftAppend r -> {
+                    out.writeLong(r.term());
+                    Wire.writeString(out, r.leaderId());
+                    out.writeLong(r.prevLogIndex());
+                    out.writeLong(r.prevLogTerm());
+                    out.writeInt(r.entries().size());
+                    for (RaftEntry e : r.entries()) {
+                        out.writeLong(e.term());
+                        Wire.writeBytes(out, e.command());
+                    }
+                    out.writeLong(r.leaderCommit());
+                }
             }
             return bytes.toByteArray();
         } catch (IOException e) {
@@ -139,6 +157,25 @@ public final class Codec {
                 case COMMIT_OFFSETS -> new Request.CommitOffsets(Wire.readString(in), Wire.readString(in),
                         Wire.readPartitionOffsets(in));
                 case FETCH_OFFSETS -> new Request.FetchOffsets(Wire.readString(in), Wire.readTopicPartitions(in));
+                case RAFT_VOTE -> new Request.RaftVote(in.readLong(), Wire.readString(in), in.readLong(),
+                        in.readLong());
+                case RAFT_APPEND -> {
+                    long term = in.readLong();
+                    String leaderId = Wire.readString(in);
+                    long prevLogIndex = in.readLong();
+                    long prevLogTerm = in.readLong();
+                    int count = Wire.readCount(in, 8 + 4);
+                    List<RaftEntry> entries = new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) {
+                        long entryTerm = in.readLong();
+                        byte[] command = Wire.readBytes(in);
+                        if (command == null) {
+                            throw new ProtocolException("raft entry without a command");
+                        }
+                        entries.add(new RaftEntry(entryTerm, command));
+                    }
+                    yield new Request.RaftAppend(term, leaderId, prevLogIndex, prevLogTerm, entries, in.readLong());
+                }
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the request");
@@ -196,6 +233,15 @@ public final class Codec {
                     }
                     case Response.CommitOffsets r -> Wire.writeTopicPartitions(out, r.rejected());
                     case Response.FetchOffsets r -> Wire.writePartitionOffsets(out, r.offsets());
+                    case Response.RaftVote r -> {
+                        out.writeLong(r.term());
+                        out.writeBoolean(r.granted());
+                    }
+                    case Response.RaftAppend r -> {
+                        out.writeLong(r.term());
+                        out.writeBoolean(r.success());
+                        out.writeLong(r.matchIndex());
+                    }
                 }
             }
             return bytes.toByteArray();
@@ -237,6 +283,8 @@ public final class Codec {
                 case LEAVE_GROUP -> new Response.LeaveGroup();
                 case COMMIT_OFFSETS -> new Response.CommitOffsets(Wire.readTopicPartitions(in));
                 case FETCH_OFFSETS -> new Response.FetchOffsets(Wire.readPartitionOffsets(in));
+                case RAFT_VOTE -> new Response.RaftVote(in.readLong(), in.readBoolean());
+                case RAFT_APPEND -> new Response.RaftAppend(in.readLong(), in.readBoolean(), in.readLong());
             };
             if (in.available() != 0) {
                 throw new ProtocolException(in.available() + " unexpected bytes after the response");

@@ -114,4 +114,18 @@ public sealed interface Response {
             return ApiKey.FETCH_OFFSETS;
         }
     }
+
+    record RaftVote(long term, boolean granted) implements Response {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.RAFT_VOTE;
+        }
+    }
+
+    record RaftAppend(long term, boolean success, long matchIndex) implements Response {
+        @Override
+        public ApiKey apiKey() {
+            return ApiKey.RAFT_APPEND;
+        }
+    }
 }

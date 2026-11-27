@@ -14,7 +14,9 @@ public enum ApiKey {
     HEARTBEAT(6),
     LEAVE_GROUP(7),
     COMMIT_OFFSETS(8),
-    FETCH_OFFSETS(9);
+    FETCH_OFFSETS(9),
+    RAFT_VOTE(10),
+    RAFT_APPEND(11);
 
     private final short code;
 

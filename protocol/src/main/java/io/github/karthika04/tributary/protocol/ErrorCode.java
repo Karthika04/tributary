@@ -26,7 +26,12 @@ public enum ErrorCode {
     /** The group's partitions were reassigned since this member last joined. Join again. */
     REBALANCE_IN_PROGRESS(14, false),
     /** Invalid group id, or settings that clash with the group's existing members. */
-    INVALID_GROUP(15, false);
+    INVALID_GROUP(15, false),
+    /**
+     * This broker is not the cluster's leader. The message names the leader's address
+     * when known ("leader is host:port"); clients retry there.
+     */
+    NOT_LEADER(16, true);
 
     private final short code;
     private final boolean retriable;
