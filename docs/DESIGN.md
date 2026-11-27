@@ -764,8 +764,62 @@ bench/build/install/tributary-perf/bin/tributary-perf suite --scenarios end-to-e
 ./gradlew :bench:jmh -PjmhArgs="CommandsBenchmark"                    # just one
 ```
 
-The numbers above come from a 2-CPU Linux container running four JVMs, so they are
-mostly useful as before and after comparisons; a laptop with more cores is faster.
+The before and after numbers in section 11.2 come from a 2-CPU Linux container running
+four JVMs, so they are comparisons, not absolute figures. The results below are from a
+laptop.
+
+### 11.4 Results on a MacBook Pro (M3 Pro, 12 cores, JDK 25)
+
+`tributary-perf suite`: brokers, producers and consumers all on the one machine,
+latency measured from each record's scheduled send time.
+
+| Scenario | Deployment | Record | Rate | Records/s | MB/s | p50 ms | p99 ms | p99.9 ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| throughput | single | 100 B | max | 3,310,542 | 315.7 | 5.54 | 13.62 | 15.59 |
+| throughput | single | 1,000 B | max | 551,107 | 525.6 | 25.63 | 143.10 | 169.60 |
+| throughput | single | 10,000 B | max | 63,434 | 605.0 | 37.95 | 179.46 | 214.02 |
+| latency | single | 1,000 B | 1,000/s | 1,000 | 1.0 | 3.75 | 6.85 | 6.98 |
+| latency | single | 1,000 B | 10,000/s | 10,000 | 9.5 | 3.13 | 6.42 | 6.45 |
+| end-to-end | single | 1,000 B | 1,000/s | 1,000 | 1.0 | 3.92 | 7.04 | 7.35 |
+| throughput | cluster | 100 B | max | 513,082 | 48.9 | 38.59 | 59.81 | 66.69 |
+| throughput | cluster | 1,000 B | max | 72,186 | 68.8 | 84.61 | 575.49 | 620.54 |
+| throughput | cluster | 10,000 B | max | 6,482 | 61.8 | 108.93 | 1713.15 | 1802.24 |
+| latency | cluster | 1,000 B | 1,000/s | 999 | 1.0 | 12.39 | 21.22 | 28.08 |
+| latency | cluster | 1,000 B | 10,000/s | 9,989 | 9.5 | 13.19 | 20.82 | 27.62 |
+| compression (none) | cluster | 1,000 B text | max | 46,192 | 44.1 | 143.23 | 1005.57 | 1054.72 |
+| compression (gzip) | cluster | 1,000 B text | max | 43,632 | 41.6 | 150.02 | 1017.34 | 1054.72 |
+| end-to-end | cluster | 1,000 B | 1,000/s | 1,000 | 1.0 | 13.29 | 28.94 | 34.21 |
+
+`./gradlew :bench:jmh` (one thread, batches of 100 records):
+
+| Micro-benchmark | Result |
+|---|---|
+| Log append, 100 B records, no fsync | 126,537 batches/s (12.7 M records/s) |
+| Log append, 1 KB records, no fsync | 6,304 batches/s (630 K records/s, 601 MB/s) |
+| Log append, 100 B records, fsync every batch | 179 batches/s (about 5.6 ms per fsync) |
+| Log append, 1 KB records, fsync every batch | 270 batches/s (about 3.7 ms per fsync) |
+| Log read, 100 B records | 14,793 batches/s (1.5 M records/s) |
+| Log read, 1 KB records | 11,789 batches/s (1.2 M records/s) |
+| Encode a produce request of 100 x 1 KB: none / GZIP | 14.2 us / 283.4 us |
+| Decode it: none / GZIP | 8.3 us / 45.5 us |
+| Encode a 1 MB Raft produce command: growing stream / exact size | 79.7 us / 32.4 us (2.5x) |
+| Decode a 1 MB Raft produce command | 49.5 us |
+
+What they show:
+
+- **A single broker is fast:** 3.3 million 100-byte records per second, 605 MB/s with
+  10 KB records, and end-to-end p99 of 7 ms at 1,000 records/s.
+- **In a cluster, the disk sets the latency.** A write is acknowledged only after the
+  leader and a follower have each forced it to disk, and JMH puts an `fsync` on this
+  Mac at about 4 to 6 ms. Two of them, plus up to 5 ms of linger, explain a p50 of
+  about 12 ms (on the Linux container, where `fsync` is cheap, it was about 5 ms). Kafka
+  by default does not `fsync` each write and relies on replicas for durability; Raft as
+  written here makes every acknowledged write survive even a power cut on a majority.
+  That is a deliberate trade of latency for durability.
+- **Cluster throughput is one round trip per batch** (section 11.2): about 50 to 70 MB/s
+  here. GZIP made no difference to it, because bytes are not the bottleneck.
+- **GZIP costs CPU:** 20x the time to encode a request. It pays off only when the
+  network is the bottleneck.
 
 ## 12. Testing
 

@@ -159,18 +159,26 @@ chaos/build/install/chaos-runner/bin/chaos-runner --clusters 5 --rounds 7
 
 ## Benchmarked
 
-`tributary-perf` measures throughput and latency percentiles (HdrHistogram, corrected
-for coordinated omission) against real brokers, and JMH benchmarks the storage log, the
-wire codec and the Raft command encoder. The first runs found four problems, now fixed:
+On a MacBook Pro (M3 Pro, 12 cores), with `tributary-perf` (latency percentiles from
+HdrHistogram, corrected for coordinated omission) and JMH:
 
-- a producer bug that let batches grow without limit until the broker refused them;
-- ~200 ms latency spikes from the consumer long-polling one partition at a time, fixed
-  with a multi-partition fetch (end-to-end p99 on a cluster: 16.7 ms to 12.2 ms, max
-  200 ms to 21 ms);
-- cluster throughput capped by one round trip per small batch (2x to 2.4x faster with
-  1 MB batches);
-- the Raft leader copying every command twice over while encoding, found with Java
-  Flight Recorder (encoding 3x faster).
+| | Single broker | 3-broker cluster (Raft) |
+|---|---:|---:|
+| Throughput, 100 B records | 3.3 M records/s | 513 K records/s |
+| Throughput, 10 KB records | 605 MB/s | 62 MB/s |
+| Produce latency at 10,000 records/s, p50 / p99 | 3.1 / 6.4 ms | 13.2 / 20.8 ms |
+| End-to-end latency at 1,000 records/s, p99 | 7.0 ms | 28.9 ms |
+
+The cluster acknowledges a write only once a majority has forced it to disk, and an
+`fsync` takes about 4 to 6 ms on this Mac (measured with JMH): that is most of its
+latency, a deliberate trade of speed for durability.
+
+The first benchmark runs found four problems, now fixed: a producer bug that let
+batches grow until the broker refused them; ~200 ms latency spikes from the consumer
+waiting on one partition at a time (fixed with a multi-partition fetch); cluster
+throughput capped by one round trip per small batch (2x to 2.4x faster with 1 MB
+batches); and, found with Java Flight Recorder, the Raft leader copying every command
+twice over while encoding it (2.5x to 3x faster).
 
 ```bash
 ./gradlew :bench:installDist
@@ -178,7 +186,7 @@ bench/build/install/tributary-perf/bin/tributary-perf suite     # single broker 
 ./gradlew :bench:jmh                                            # micro-benchmarks
 ```
 
-Details and before/after numbers: [DESIGN.md section 11](docs/DESIGN.md#11-performance).
+All results and the before/after numbers: [DESIGN.md section 11](docs/DESIGN.md#11-performance).
 
 ## Build and test
 

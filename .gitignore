@@ -14,3 +14,7 @@ out/
 # Local data written while running the broker
 data/
 *.log.tmp
+
+# Results written by tributary-perf and chaos-runner
+perf-results/
+chaos-results/
