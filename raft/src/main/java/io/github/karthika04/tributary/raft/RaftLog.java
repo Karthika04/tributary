@@ -16,8 +16,10 @@ import java.util.List;
  * from 1; storage offsets start at 0, so entry N is stored at offset N - 1. Each
  * record's value is {@code [term: 8 bytes][command]}.
  *
- * <p>Every append is forced to disk before it returns ({@code flushEveryAppend}):
- * a follower must not say "I have it" about an entry a power cut could still erase.
+ * <p>Appends are not forced to disk on their own: call {@link #flush()}. That lets
+ * {@link RaftNode} force a whole batch of entries with one {@code fsync}, and do it
+ * without holding its lock (group commit). A node still never reports an entry as
+ * stored, to itself or to a leader, before it has been flushed.
  *
  * <p>The term of every entry is also kept in memory, because Raft asks "what is the
  * term at index N?" constantly.
@@ -34,7 +36,7 @@ final class RaftLog implements Closeable {
         this.log = Log.open(dir, LogConfig.defaults()
                 .withMaxRecordBytes(MAX_COMMAND_BYTES + 64)
                 .withSegmentBytes(Math.max(LogConfig.DEFAULT_SEGMENT_BYTES, MAX_COMMAND_BYTES + 64))
-                .withFlushEveryAppend(true));
+                .withFlushEveryAppend(false));
         long offset = 0;
         while (offset < log.endOffset()) {
             for (Record r : log.read(offset, 10_000)) {
@@ -73,7 +75,7 @@ final class RaftLog implements Closeable {
         return i;
     }
 
-    /** Appends entries durably. @return the index of the last one */
+    /** Appends entries; they are durable only after {@link #flush()}. @return the index of the last one */
     long append(List<LogEntry> entries) {
         if (entries.isEmpty()) {
             return size;
@@ -117,6 +119,14 @@ final class RaftLog implements Closeable {
             result.add(entry);
         }
         return result;
+    }
+
+    /**
+     * Forces every appended entry to disk. Safe to call without the node's lock: the
+     * storage log has its own.
+     */
+    void flush() {
+        log.flush();
     }
 
     /** Deletes the entry at {@code index} and everything after it. */

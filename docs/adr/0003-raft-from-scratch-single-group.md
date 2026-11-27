@@ -43,7 +43,7 @@ Two choices had to be made:
   `RaftTransport` interface, so the tests run 3 to 5 nodes in one JVM over a simulated
   network that can drop, partition and crash nodes, including a randomized chaos test
   that checks the safety properties after every round. The deliberately broken vote
-  check is caught by three tests every run.
+  check is caught on every run (by a deterministic test, and usually two others).
 - **One group keeps the system easy to reason about.** One leader, one order of
   writes, one place to look. The state machine is the broker's existing storage code,
   reached through a small `Writes` interface, so standalone and cluster modes share all

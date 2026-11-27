@@ -71,6 +71,8 @@ public final class RaftNode implements AutoCloseable {
     private String leaderId;
     private long commitIndex;
     private long lastApplied;
+    /** Every entry up to here is forced to disk. Only these count as "stored here". */
+    private long durableIndex;
     private long electionDeadlineNanos;
 
     // Leader-only state, reset on every election win.
@@ -90,6 +92,7 @@ public final class RaftNode implements AutoCloseable {
         this.log = new RaftLog(config.dataDir().resolve("log"));
         this.currentTerm = meta.term();
         this.votedFor = meta.votedFor();
+        this.durableIndex = log.lastIndex(); // what survived on disk is all there is
     }
 
     /**
@@ -109,6 +112,8 @@ public final class RaftNode implements AutoCloseable {
                 .start(node::tickLoop));
         node.threads.add(Thread.ofPlatform().daemon(true).name("raft-" + config.nodeId() + "-applier")
                 .start(node::applyLoop));
+        node.threads.add(Thread.ofPlatform().daemon(true).name("raft-" + config.nodeId() + "-flusher")
+                .start(node::flushLoop));
         for (String peer : config.peerIds()) {
             node.threads.add(Thread.ofVirtual().name("raft-" + config.nodeId() + "-to-" + peer)
                     .start(() -> node.replicateLoop(peer)));
@@ -356,11 +361,19 @@ public final class RaftNode implements AutoCloseable {
                         throw new IllegalStateException("refusing to delete committed entry " + index);
                     }
                     log.truncateFrom(index); // an uncommitted entry from an old leader
+                    durableIndex = Math.min(durableIndex, index - 1);
                 }
                 log.append(entries.subList(i, entries.size()));
                 break;
             }
             long lastNew = prev + entries.size();
+            if (durableIndex < lastNew) {
+                // Only answer "I have it" once it would survive a power cut. One flush
+                // covers the whole batch. (It also covers entries this node appended as
+                // a leader but had not flushed yet before stepping down.)
+                log.flush();
+                durableIndex = log.lastIndex();
+            }
             if (request.leaderCommit() > commitIndex) {
                 commitIndex = Math.min(request.leaderCommit(), lastNew);
                 changed.signalAll();
@@ -377,7 +390,7 @@ public final class RaftNode implements AutoCloseable {
             if (log.termAt(n) != currentTerm) {
                 break; // older terms are only committed indirectly
             }
-            int copies = 1; // the leader's own
+            int copies = durableIndex >= n ? 1 : 0; // the leader's own copy, once it is on disk
             for (long match : matchIndex.values()) {
                 if (match >= n) {
                     copies++;
@@ -387,6 +400,49 @@ public final class RaftNode implements AutoCloseable {
                 commitIndex = n;
                 changed.signalAll();
                 return;
+            }
+        }
+    }
+
+    // ---- group commit ------------------------------------------------------------------
+
+    /**
+     * Leader only: forces new entries to disk in batches, outside the lock. Holding the
+     * lock through an {@code fsync} per proposal would stall heartbeats on a slow disk
+     * (an fsync can take several ms on a Mac), and followers would start needless elections.
+     * Here, proposals that arrive during a flush wait for the next one, so one fsync
+     * covers many entries.
+     */
+    private void flushLoop() {
+        while (running) {
+            long target;
+            long term;
+            lock.lock();
+            try {
+                while (running && (role != Role.LEADER || durableIndex >= log.lastIndex())) {
+                    awaitQuietly(TimeUnit.MILLISECONDS.toNanos(50));
+                }
+                if (!running) {
+                    return;
+                }
+                target = log.lastIndex();
+                term = currentTerm;
+            } finally {
+                lock.unlock();
+            }
+
+            log.flush();
+
+            lock.lock();
+            try {
+                // A leader never truncates its own log, so if it is still the leader of
+                // the same term, everything up to target is now on disk.
+                if (role == Role.LEADER && currentTerm == term) {
+                    durableIndex = Math.max(durableIndex, target);
+                    advanceCommitIndex();
+                }
+            } finally {
+                lock.unlock();
             }
         }
     }

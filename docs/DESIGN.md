@@ -442,9 +442,20 @@ election rule (below) guarantees the next leader has it.
   clients only from a ready leader, so nobody reads stale data.
 - **Durability.** The current term and vote are written to `raft-meta` with a write to
   a temporary file, `fsync`, and an atomic rename, so a crash can never leave a node
-  that voted twice in one term. The log itself is a Tributary storage `Log` with
-  `flushEveryAppend`, one record per entry (term plus command), so it inherits the
-  checksums and crash recovery from section 4.
+  that voted twice in one term. The log itself is a Tributary storage `Log`, one
+  record per entry (term plus command), so it inherits the checksums and crash
+  recovery from section 4.
+- **Group commit.** A node never counts an entry as stored, for itself or in its
+  answer to a leader, until it is forced to disk. But one `fsync` per proposal, made
+  while holding the node's lock, stalls heartbeats on a slow disk (on a Mac an
+  `fsync` can take several milliseconds), and
+  followers then start needless elections. So the leader appends without waiting,
+  and a flusher thread forces the disk *outside* the lock, covering every entry that
+  arrived since the last flush. The leader counts its own copy toward the majority
+  only up to what is flushed. A follower flushes once per AppendEntries batch before
+  it answers. This was found by the tests on a Mac; the same failure reproduces on
+  Linux by adding a 5 ms delay to every flush, and with the fix the Raft and cluster
+  tests pass even at 20 ms.
 - **Applying.** A separate applier thread applies committed entries in order and
   completes the `CompletableFuture` returned by `propose()` with the state machine's
   result (for a produce, the base offset). If the node loses leadership first, the
@@ -529,7 +540,8 @@ commit and its uncommitted entries are discarded when it rejoins; a lagging foll
 catches up; terms, votes and logs survive restarting every node; and a randomized
 chaos test (5 nodes, 25 rounds of crashes, restarts and partitions, fixed seed) checks
 after every round that no two nodes ever disagree on a committed entry. Breaking the
-vote rule on purpose makes three of these fail on every run.
+vote rule on purpose makes the deterministic vote test fail on every run, and usually
+two more.
 
 Cluster (7), with three real brokers on localhost: every broker ends up with identical
 data; a follower redirects clients to the leader; **killing the leader in the middle of
