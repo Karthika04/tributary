@@ -7,4 +7,4 @@ dependencyResolutionManagement {
     }
 }
 
-include("storage", "protocol", "raft", "broker", "client", "cli")
+include("storage", "protocol", "raft", "broker", "client", "cli", "chaos")
