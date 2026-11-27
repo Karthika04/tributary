@@ -87,6 +87,30 @@ class TributaryCliTest {
     }
 
     @Test
+    void aGroupResumesWhereItStoppedAndLagShowsProgress() throws IOException {
+        try (BrokerServer broker = startBroker()) {
+            run(broker, "", "create-topic", "jobs");
+            run(broker, "", "produce", "jobs", "j1", "j2", "j3", "j4", "j5");
+
+            Result before = run(broker, "", "lag", "workers", "jobs");
+            assertTrue(before.out().contains("0\t-\t5\t-"), before.out()); // nothing committed yet
+
+            Result first = run(broker, "", "consume", "jobs", "--group", "workers", "--from-beginning",
+                    "--max-messages", "2");
+            assertEquals("j1\nj2\n", first.out().replace("\r", ""));
+
+            Result lag = run(broker, "", "lag", "workers", "jobs");
+            assertTrue(lag.out().contains("0\t2\t5\t3"), lag.out()); // committed 2 of 5
+            assertTrue(lag.out().contains("TOTAL LAG\t3"), lag.out());
+
+            Result second = run(broker, "", "consume", "jobs", "--group", "workers", "--timeout-ms", "500");
+            assertEquals("j3\nj4\nj5\n", second.out().replace("\r", "")); // picks up at j3
+
+            assertTrue(run(broker, "", "lag", "workers", "jobs").out().contains("TOTAL LAG\t0"));
+        }
+    }
+
+    @Test
     void reportsErrorsWithExitCodes() throws IOException {
         try (BrokerServer broker = startBroker()) {
             Result missing = run(broker, "", "offsets", "nope");
@@ -99,6 +123,7 @@ class TributaryCliTest {
             assertTrue(duplicate.err().contains("TOPIC_ALREADY_EXISTS"), duplicate.err());
         }
         assertEquals(2, run(null, "", "fly-to-the-moon").exitCode());
+        assertEquals(2, run(null, "", "lag", "only-a-group").exitCode());
         assertEquals(2, run(null, "", "create-topic").exitCode());
         assertEquals(2, run(null, "", "create-topic", "x", "--partitions").exitCode());
         assertEquals(2, run(null, "").exitCode());

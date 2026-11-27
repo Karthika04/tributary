@@ -9,6 +9,7 @@ import io.github.karthika04.tributary.client.ProducerConfig;
 import io.github.karthika04.tributary.client.RecordMetadata;
 import io.github.karthika04.tributary.client.TributaryClient;
 import io.github.karthika04.tributary.client.TributaryException;
+import io.github.karthika04.tributary.protocol.PartitionOffset;
 import io.github.karthika04.tributary.protocol.Response;
 import io.github.karthika04.tributary.protocol.TopicPartition;
 import java.io.BufferedReader;
@@ -34,7 +35,9 @@ import java.util.concurrent.CompletionException;
  * tributary produce orders --key user-42 "clicked checkout"
  * echo "one line per message" | tributary produce orders
  * tributary consume orders --from-beginning
+ * tributary consume orders --group billing
  * tributary offsets orders
+ * tributary lag billing orders
  * </pre>
  *
  * Every command accepts {@code --bootstrap host:port} (default {@code localhost:9292},
@@ -85,6 +88,7 @@ public final class TributaryCli {
                 case "produce" -> produce(client, args);
                 case "consume" -> consume(client, args);
                 case "offsets" -> offsets(client, args);
+                case "lag" -> lag(client, args);
                 default -> {
                     err.println("error: unknown command '" + args.command + "'");
                     err.println(USAGE_TEXT);
@@ -166,18 +170,28 @@ public final class TributaryCli {
         long maxMessages = Long.parseLong(args.option("max-messages", Long.toString(Long.MAX_VALUE)));
         long idleTimeoutMs = Long.parseLong(args.option("timeout-ms", "-1"));
         boolean printMetadata = args.has("print-metadata");
+        String group = args.option("group", null);
         ConsumerConfig consumerConfig = ConsumerConfig.of(config).withAutoOffsetReset(args.has("from-beginning")
                 ? ConsumerConfig.AutoOffsetReset.EARLIEST
                 : ConsumerConfig.AutoOffsetReset.LATEST);
+        if (group != null) {
+            consumerConfig = consumerConfig.withGroup(group)
+                    .withAssignor(args.option("assignor", "range"));
+        }
 
         try (Consumer consumer = new Consumer(consumerConfig)) {
             String partitionOption = args.option("partition", null);
+            if (partitionOption != null && group != null) {
+                throw new IllegalArgumentException("--partition and --group cannot be used together");
+            }
             if (partitionOption == null) {
                 consumer.subscribe(topic);
             } else {
                 consumer.assign(List.of(new TopicPartition(topic, Integer.parseInt(partitionOption))));
             }
-            consumer.assignment().forEach(consumer::position); // fix starting positions now
+            if (group == null) {
+                consumer.assignment().forEach(consumer::position); // fix starting positions now
+            }
 
             long received = 0;
             long idleSince = System.currentTimeMillis();
@@ -192,7 +206,12 @@ public final class TributaryCli {
                 idleSince = System.currentTimeMillis();
                 for (ConsumerRecord r : records) {
                     if (received >= maxMessages) {
-                        break;
+                        // Fetched but not printed: rewind so a group does not commit past it.
+                        TopicPartition tp = new TopicPartition(r.topic(), r.partition());
+                        if (r.offset() < consumer.position(tp)) {
+                            consumer.seek(tp, r.offset());
+                        }
+                        continue;
                     }
                     if (printMetadata) {
                         out.println(r.topic() + "-" + r.partition() + "@" + r.offset() + "\t"
@@ -222,6 +241,34 @@ public final class TributaryCli {
         return OK;
     }
 
+    /** How far behind a consumer group is on each partition of a topic. */
+    private int lag(ClientConfig config, Args args) {
+        String group = args.positional(0, "group id");
+        String topic = args.positional(1, "topic name");
+        try (TributaryClient client = new TributaryClient(config)) {
+            int count = client.partitionCount(topic);
+            List<TopicPartition> partitions = new ArrayList<>();
+            for (int p = 0; p < count; p++) {
+                partitions.add(new TopicPartition(topic, p));
+            }
+            List<PartitionOffset> committed = client.fetchOffsets(group, partitions);
+            out.println("PARTITION\tCOMMITTED\tEND\tLAG");
+            long total = 0;
+            for (PartitionOffset po : committed) {
+                long end = client.listOffsets(topic, po.partition()).endOffset();
+                if (po.offset() < 0) {
+                    out.println(po.partition() + "\t-\t" + end + "\t-");
+                } else {
+                    long lag = Math.max(0, end - po.offset());
+                    total += lag;
+                    out.println(po.partition() + "\t" + po.offset() + "\t" + end + "\t" + lag);
+                }
+            }
+            out.println("TOTAL LAG\t" + total);
+        }
+        return OK;
+    }
+
     private static byte[] bytes(String s) {
         return s == null ? null : s.getBytes(StandardCharsets.UTF_8);
     }
@@ -235,10 +282,12 @@ public final class TributaryCli {
               produce <topic> [message ...]               send messages (or one per line from stdin)
                   [--key K] [--partition P]
               consume <topic>                             print messages as they arrive (Ctrl+C to stop)
+                  [--group G] [--assignor range|roundrobin]  share the topic with a consumer group
                   [--from-beginning] [--partition P]
                   [--max-messages N] [--timeout-ms T]     stop after N messages or T ms with nothing new
                   [--print-metadata]                      show partition, offset and key too
               offsets <topic>                             show each partition's offset range
+              lag <group> <topic>                         show how far behind a consumer group is
 
             --bootstrap defaults to localhost:9292 or the TRIBUTARY_BOOTSTRAP environment variable.""";
 
