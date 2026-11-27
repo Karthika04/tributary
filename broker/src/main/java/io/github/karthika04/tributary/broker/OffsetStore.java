@@ -8,8 +8,10 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -84,6 +86,13 @@ final class OffsetStore {
         for (PartitionOffset po : offsets) {
             committed.computeIfAbsent(group, g -> new ConcurrentHashMap<>()).put(po.topicPartition(), po.offset());
         }
+    }
+
+    /** Every group that has committed, with the partitions it committed for (a copy). */
+    Map<String, Set<TopicPartition>> committedPartitions() {
+        Map<String, Set<TopicPartition>> copy = new HashMap<>();
+        committed.forEach((group, offsets) -> copy.put(group, Set.copyOf(offsets.keySet())));
+        return copy;
     }
 
     /** The group's committed offset for the partition, or -1 if it never committed one. */

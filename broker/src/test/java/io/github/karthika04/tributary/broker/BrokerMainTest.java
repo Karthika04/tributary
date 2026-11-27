@@ -51,6 +51,17 @@ class BrokerMainTest {
     }
 
     @Test
+    void metricsAreServedOnlyWhenAskedFor() {
+        assertEquals(-1, BrokerMain.metricsPort(new String[] {"--port", "9300"}));
+        String[] args = {"--port", "9300", "--metrics-port", "9400"};
+        assertEquals(9400, BrokerMain.metricsPort(args));
+        assertEquals(9300, BrokerMain.parse(args).port()); // the broker's own flags still parse
+        assertThrows(IllegalArgumentException.class, () -> BrokerMain.metricsPort(new String[] {"--metrics-port", "x"}));
+        assertThrows(IllegalArgumentException.class,
+                () -> BrokerMain.metricsPort(new String[] {"--metrics-port", "70000"}));
+    }
+
+    @Test
     void rejectsBadClusterSettings() {
         assertThrows(IllegalArgumentException.class,
                 () -> BrokerMain.parse(new String[] {"--cluster", CLUSTER}));

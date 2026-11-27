@@ -27,8 +27,10 @@ public final class BrokerMain {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         BrokerConfig config;
+        int metricsPort;
         try {
             config = parse(args);
+            metricsPort = metricsPort(args);
         } catch (IllegalArgumentException e) {
             System.err.println("error: " + e.getMessage());
             System.err.println(usage());
@@ -41,15 +43,20 @@ public final class BrokerMain {
         }
 
         BrokerServer broker = BrokerServer.start(config);
+        MetricsEndpoint endpoint = metricsPort < 0 ? null : MetricsEndpoint.start(metricsPort, broker::scrapeMetrics);
         CountDownLatch stopped = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
+            if (endpoint != null) {
+                endpoint.close();
+            }
             broker.close();
             stopped.countDown();
         }, "tributary-shutdown"));
         System.out.println("Tributary broker listening on port " + broker.port()
                 + ", data in " + config.dataDir().toAbsolutePath().normalize()
-                + (config.isClustered() ? ", node " + config.nodeId() + " of " + config.clusterNodes().size() : ""));
+                + (config.isClustered() ? ", node " + config.nodeId() + " of " + config.clusterNodes().size() : "")
+                + (endpoint == null ? "" : ", metrics on http://localhost:" + endpoint.port() + "/metrics"));
         stopped.await();
     }
 
@@ -68,6 +75,7 @@ public final class BrokerMain {
                     return null;
                 }
                 case "--port" -> port = Integer.parseInt(value(args, ++i, arg));
+                case "--metrics-port" -> value(args, ++i, arg); // read by metricsPort()
                 case "--data-dir" -> dataDir = Path.of(value(args, ++i, arg));
                 case "--retention-hours" -> log = log.withRetentionMs(
                         Duration.ofHours(Long.parseLong(value(args, ++i, arg))).toMillis());
@@ -98,6 +106,20 @@ public final class BrokerMain {
             return config;
         }
         return config.withCluster(nodeId, cluster).withPeerAddresses(peerAddresses);
+    }
+
+    /** The {@code --metrics-port} value, or -1 if metrics are not served. */
+    static int metricsPort(String[] args) {
+        int port = -1;
+        for (int i = 0; i < args.length - 1; i++) {
+            if (args[i].equals("--metrics-port")) {
+                port = Integer.parseInt(args[i + 1]);
+                if (port < 0 || port > 65535) {
+                    throw new IllegalArgumentException("--metrics-port must be 0-65535");
+                }
+            }
+        }
+        return port;
     }
 
     /** Parses {@code 1=localhost:9292,2=localhost:9293,3=localhost:9294}: at least 3 nodes. */
@@ -162,6 +184,7 @@ public final class BrokerMain {
                   --retention-bytes N    keep at most N bytes per partition (default: no limit)
                   --segment-bytes N      segment file size (default 64 MiB)
                   --flush-every-append   force every write to disk (slower, safest)
+                  --metrics-port PORT    serve Prometheus metrics on http://host:PORT/metrics
                   --node-id ID           this broker's id in the cluster
                   --cluster LIST         run as a replicated cluster, e.g.
                                          1=localhost:9292,2=localhost:9293,3=localhost:9294

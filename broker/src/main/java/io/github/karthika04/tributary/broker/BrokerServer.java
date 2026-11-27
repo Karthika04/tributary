@@ -1,13 +1,19 @@
 package io.github.karthika04.tributary.broker;
 
+import io.github.karthika04.tributary.protocol.ApiKey;
 import io.github.karthika04.tributary.protocol.Codec;
 import io.github.karthika04.tributary.protocol.Compression;
+import io.github.karthika04.tributary.protocol.ErrorCode;
 import io.github.karthika04.tributary.protocol.Frames;
 import io.github.karthika04.tributary.protocol.ProtocolException;
 import io.github.karthika04.tributary.protocol.Request;
 import io.github.karthika04.tributary.protocol.RequestDecodeException;
 import io.github.karthika04.tributary.protocol.RequestEnvelope;
 import io.github.karthika04.tributary.protocol.ResponseEnvelope;
+import io.github.karthika04.tributary.raft.RaftConfig;
+import io.github.karthika04.tributary.raft.RaftNode;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -18,8 +24,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import io.github.karthika04.tributary.raft.RaftConfig;
-import io.github.karthika04.tributary.raft.RaftNode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -34,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import org.slf4j.MDC;
 
 /**
  * The broker's network layer: accepts TCP connections and serves each one on its own
@@ -58,6 +63,9 @@ public final class BrokerServer implements AutoCloseable {
     private final RaftNode raft; // null for a single broker
     private final BrokerRaftTransport raftTransport;
     private final RequestHandler handler;
+    private final PrometheusMeterRegistry meterRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    private final BrokerMetrics metrics = new BrokerMetrics(meterRegistry);
+    private final OffsetStore offsets;
     private final ServerSocket serverSocket;
     private final ExecutorService connectionThreads = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService housekeeping;
@@ -96,8 +104,9 @@ public final class BrokerServer implements AutoCloseable {
             }
             this.raft = startedRaft;
             this.raftTransport = startedTransport;
+            this.offsets = offsets;
             this.groups = new GroupCoordinator(topics, offsets, writes, clock);
-            this.handler = new RequestHandler(topics, groups, writes, raft, config, clock);
+            this.handler = new RequestHandler(topics, groups, writes, raft, config, clock, metrics);
             this.serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(config.port()));
@@ -108,6 +117,7 @@ public final class BrokerServer implements AutoCloseable {
             if (startedTransport != null) {
                 startedTransport.close();
             }
+            metrics.close();
             topics.close();
             throw e;
         }
@@ -124,6 +134,11 @@ public final class BrokerServer implements AutoCloseable {
         }
         housekeeping.scheduleWithFixedDelay(this::expireGroupMembers, config.groupCheckIntervalMs(),
                 config.groupCheckIntervalMs(), TimeUnit.MILLISECONDS);
+        metrics.connections(openSockets);
+        if (raft != null) {
+            metrics.raft(raft);
+        }
+        housekeeping.scheduleWithFixedDelay(this::refreshMetrics, 0, 1, TimeUnit.SECONDS);
         this.acceptThread = Thread.ofPlatform().name("tributary-accept").start(this::acceptLoop);
     }
 
@@ -167,6 +182,7 @@ public final class BrokerServer implements AutoCloseable {
                 }
                 ResponseEnvelope response;
                 Compression compression = Compression.NONE;
+                long started = System.nanoTime();
                 try {
                     RequestEnvelope request = Codec.decodeRequest(frame);
                     if (request.request() instanceof Request.Fetch fetch) {
@@ -174,10 +190,24 @@ public final class BrokerServer implements AutoCloseable {
                     } else if (request.request() instanceof Request.MultiFetch fetch) {
                         compression = fetch.compression();
                     }
-                    response = handler.handle(request);
+                    // Every log line written while handling this request carries these
+                    // (the JSON logs show them as fields), so one request's story can be
+                    // pulled out of a busy log.
+                    MDC.put("clientId", String.valueOf(request.clientId()));
+                    MDC.put("correlationId", Integer.toString(request.correlationId()));
+                    MDC.put("api", request.request().apiKey().name());
+                    try {
+                        response = handler.handle(request);
+                        logIfSlowOrFailed(response, System.nanoTime() - started);
+                    } finally {
+                        MDC.remove("clientId");
+                        MDC.remove("correlationId");
+                        MDC.remove("api");
+                    }
                 } catch (RequestDecodeException e) {
                     response = ResponseEnvelope.failure(e.correlationId(), e.apiKey(), e.error(), e.getMessage());
                 }
+                metrics.request(response.apiKey(), response.error(), System.nanoTime() - started);
                 Frames.write(out, Codec.encodeResponse(response, compression));
                 out.flush();
             }
@@ -191,6 +221,39 @@ public final class BrokerServer implements AutoCloseable {
         } finally {
             openSockets.remove(socket);
         }
+    }
+
+    /** Requests slower than this are logged, so they can be found later. */
+    static final long SLOW_REQUEST_NANOS = TimeUnit.SECONDS.toNanos(1);
+
+    private static void logIfSlowOrFailed(ResponseEnvelope response, long nanos) {
+        if (response.error() == ErrorCode.INTERNAL_ERROR) {
+            LOG.log(Level.ERROR, "request failed: " + response.errorMessage());
+        } else if (nanos > SLOW_REQUEST_NANOS && !isLongPoll(response.apiKey())) {
+            LOG.log(Level.WARNING, "slow request: " + TimeUnit.NANOSECONDS.toMillis(nanos) + " ms");
+        }
+    }
+
+    /** Fetches wait on purpose (long polling), so a slow one is not a problem. */
+    private static boolean isLongPoll(ApiKey api) {
+        return api == ApiKey.FETCH || api == ApiKey.MULTI_FETCH;
+    }
+
+    private void refreshMetrics() {
+        try {
+            metrics.refreshPartitions(topics);
+            metrics.refreshLag(topics, offsets);
+            if (raft != null) {
+                metrics.sampleLeader(raft);
+            }
+        } catch (RuntimeException e) {
+            LOG.log(Level.DEBUG, "metrics refresh failed", e);
+        }
+    }
+
+    /** The broker's metrics in Prometheus' text format, as served on {@code /metrics}. */
+    public String scrapeMetrics() {
+        return meterRegistry.scrape();
     }
 
     private void expireGroupMembers() {
@@ -262,6 +325,7 @@ public final class BrokerServer implements AutoCloseable {
         if (raftTransport != null) {
             raftTransport.close();
         }
+        metrics.close();
         topics.close();
     }
 

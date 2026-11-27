@@ -1,0 +1,23 @@
+<!--
+  Logging for the broker. Every module logs through the JDK's System.Logger; the
+  slf4j-jdk-platform-logging bridge sends that to SLF4J, and Logback writes it here.
+
+  TRIBUTARY_LOG_FORMAT=TEXT (default) for people, JSON for log collectors: one JSON
+  object per line, with the request's clientId, correlationId and api from the MDC.
+  TRIBUTARY_LOG_LEVEL sets the level (default INFO).
+-->
+<configuration>
+  <appender name="TEXT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{0} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="ch.qos.logback.classic.encoder.JsonEncoder"/>
+  </appender>
+
+  <root level="${TRIBUTARY_LOG_LEVEL:-INFO}">
+    <appender-ref ref="${TRIBUTARY_LOG_FORMAT:-TEXT}"/>
+  </root>
+</configuration>

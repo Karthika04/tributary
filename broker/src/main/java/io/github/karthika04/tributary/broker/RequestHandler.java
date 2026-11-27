@@ -48,9 +48,10 @@ final class RequestHandler {
     private final RaftWrites raftWrites;
     private final BrokerConfig config;
     private final Clock clock;
+    private final BrokerMetrics metrics;
 
     RequestHandler(TopicManager topics, GroupCoordinator groups, Writes writes, RaftNode raft,
-                   BrokerConfig config, Clock clock) {
+                   BrokerConfig config, Clock clock, BrokerMetrics metrics) {
         this.topics = topics;
         this.groups = groups;
         this.writes = writes;
@@ -58,6 +59,7 @@ final class RequestHandler {
         this.raftWrites = writes instanceof RaftWrites rw ? rw : null;
         this.config = config;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     ResponseEnvelope handle(RequestEnvelope envelope) {
@@ -165,17 +167,19 @@ final class RequestHandler {
             throw new BrokerException(ErrorCode.INVALID_TOPIC, "topic '" + r.topic() + "' is internal to the broker");
         }
         topics.partition(r.topic(), r.partition()); // UNKNOWN_TOPIC / UNKNOWN_PARTITION
+        long bytes = 0;
+        for (var record : r.records()) {
+            bytes += record.value().length + (record.key() == null ? 0 : record.key().length);
+        }
         if (raft != null) {
-            long bytes = 0;
-            for (var record : r.records()) {
-                bytes += record.value().length + (record.key() == null ? 0 : record.key().length);
-            }
             if (bytes > MAX_CLUSTER_PRODUCE_BYTES) {
                 throw new BrokerException(ErrorCode.RECORD_TOO_LARGE, "a produce request in a cluster may carry at most "
                         + MAX_CLUSTER_PRODUCE_BYTES + " bytes; send smaller batches");
             }
         }
-        return new Response.Produce(writes.produce(r.topic(), r.partition(), clock.millis(), r.records()));
+        long baseOffset = writes.produce(r.topic(), r.partition(), clock.millis(), r.records());
+        metrics.produced(r.topic(), r.records().size(), bytes);
+        return new Response.Produce(baseOffset);
     }
 
     private Response fetch(Request.Fetch r) throws InterruptedException {
@@ -188,8 +192,13 @@ final class RequestHandler {
         long maxWait = Math.min(r.maxWaitMs(), config.maxFetchWaitMs());
         List<Record> stored = partition.read(r.offset(), maxRecords, maxWait);
         List<FetchedRecord> records = new ArrayList<>(stored.size());
+        long bytes = 0;
         for (Record s : stored) {
             records.add(new FetchedRecord(s.offset(), s.timestamp(), s.key(), s.value()));
+            bytes += s.value().length + (s.key() == null ? 0 : s.key().length);
+        }
+        if (!records.isEmpty()) {
+            metrics.fetched(r.topic(), records.size(), bytes);
         }
         return new Response.Fetch(partition.startOffset(), partition.endOffset(), records);
     }
@@ -215,6 +224,15 @@ final class RequestHandler {
             boolean worthAnswering = result.stream()
                     .anyMatch(p -> !p.records().isEmpty() || p.error() != ErrorCode.NONE);
             if (worthAnswering || remaining <= 0) {
+                for (PartitionRecords p : result) {
+                    if (!p.records().isEmpty()) {
+                        long bytes = 0;
+                        for (FetchedRecord f : p.records()) {
+                            bytes += f.value().length + (f.key() == null ? 0 : f.key().length);
+                        }
+                        metrics.fetched(p.topic(), p.records().size(), bytes);
+                    }
+                }
                 return new Response.MultiFetch(result);
             }
             remaining = arrivals.awaitChange(seen, remaining);

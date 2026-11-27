@@ -1,13 +1,17 @@
 # Version catalog: every third-party library version used in the project, in one place.
 # Modules refer to these as libs.<name>, e.g. libs.junit.jupiter.
 #
-# The core modules (storage, protocol, raft) use none of these at runtime. Libraries
-# are used only for measuring and observing: benchmarks, metrics and logging.
+# Storage, protocol, raft and client use none of these. The broker uses only the
+# Micrometer and SLF4J facades in its code; the Prometheus registry, Logback and the
+# JDK-logging bridge are plugged in by its application (see ADR 0005).
 
 [versions]
 junit = "5.11.4"
 hdrhistogram = "2.2.2"
 jmh = "1.37"
+micrometer = "1.15.4"
+slf4j = "2.0.17"
+logback = "1.5.18"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -16,3 +20,8 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 hdrhistogram = { module = "org.hdrhistogram:HdrHistogram", version.ref = "hdrhistogram" }
 jmh-core = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
 jmh-generator-annprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
+micrometer-core = { module = "io.micrometer:micrometer-core", version.ref = "micrometer" }
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus", version.ref = "micrometer" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4j-jdk-platform-logging = { module = "org.slf4j:slf4j-jdk-platform-logging", version.ref = "slf4j" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }

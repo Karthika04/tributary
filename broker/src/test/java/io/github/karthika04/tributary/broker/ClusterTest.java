@@ -195,6 +195,14 @@ class ClusterTest {
             assertEquals(expected0, localValues(broker, "orders", 0));
             assertEquals(expected1, localValues(broker, "orders", 1));
         }
+
+        // Each broker's metrics agree on who leads and on the term.
+        double term = MetricsTest.metric(running.get(leader).scrapeMetrics(), "tributary_raft_term");
+        for (Map.Entry<String, BrokerServer> e : running.entrySet()) {
+            String text = e.getValue().scrapeMetrics();
+            assertEquals(e.getKey().equals(leader) ? 1.0 : 0.0, MetricsTest.metric(text, "tributary_raft_leader"));
+            assertEquals(term, MetricsTest.metric(text, "tributary_raft_term"));
+        }
     }
 
     private static Map<String, Integer> toMap(List<Response.TopicMetadata> metadata) {
