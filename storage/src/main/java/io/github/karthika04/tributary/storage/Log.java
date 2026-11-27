@@ -87,7 +87,8 @@ public final class Log implements Closeable {
             }
             if (dirLock == null) {
                 lockChannel.close();
-                throw new IllegalStateException("log directory " + dir + " is already open");
+                throw new IllegalStateException("log directory " + dir
+                        + " is already open (is another broker running on this data directory?)");
             }
             Log log = new Log(dir, config, clock, lockChannel, dirLock);
             try {

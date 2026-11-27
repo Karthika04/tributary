@@ -5,8 +5,14 @@
   TRIBUTARY_LOG_FORMAT=TEXT (default) for people, JSON for log collectors: one JSON
   object per line, with the request's clientId, correlationId and api from the MDC.
   TRIBUTARY_LOG_LEVEL sets the level (default INFO).
+
+  Only one of the two appenders is ever referenced, so Logback would warn about the
+  other on every start and print its whole status report. The NopStatusListener keeps
+  that internal report quiet. LoggingConfigTest checks this file's structure instead.
 -->
 <configuration>
+  <statusListener class="ch.qos.logback.core.status.NopStatusListener"/>
+
   <appender name="TEXT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
       <pattern>%d{HH:mm:ss.SSS} %-5level %logger{0} - %msg%n</pattern>

@@ -39,5 +39,9 @@ class LoggingConfigTest {
         assertEquals("${TRIBUTARY_LOG_LEVEL:-INFO}", root.getAttribute("level"));
         Element ref = (Element) root.getElementsByTagName("appender-ref").item(0);
         assertEquals("${TRIBUTARY_LOG_FORMAT:-TEXT}", ref.getAttribute("ref"));
+
+        Element listener = (Element) doc.getElementsByTagName("statusListener").item(0);
+        assertNotNull(listener, "without a status listener Logback prints its status on every start");
+        assertEquals("ch.qos.logback.core.status.NopStatusListener", listener.getAttribute("class"));
     }
 }
