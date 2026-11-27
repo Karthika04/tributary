@@ -131,6 +131,17 @@ final class Index implements Closeable {
         entries = 0;
     }
 
+    /** Keeps only the first {@code count} entries. */
+    void truncate(int count) {
+        if (!writable) {
+            throw new IllegalStateException("index " + path + " is read-only");
+        }
+        if (count < 0 || count > entries) {
+            throw new IllegalArgumentException("cannot truncate " + entries + " entries to " + count);
+        }
+        entries = count;
+    }
+
     void flush() {
         if (writable) {
             mmap.force();

@@ -208,6 +208,70 @@ class LogTest {
         }
     }
 
+    // ---- truncation --------------------------------------------------------------
+
+    @Test
+    void truncateFromRemovesTheTailAndAppendsReuseTheOffsets() {
+        try (Log log = Log.open(dir, SMALL)) {
+            for (int i = 0; i < 100; i++) {
+                log.append(null, bytes("m" + i));
+            }
+            int segmentsBefore = log.segmentCount();
+
+            log.truncateFrom(37);
+
+            assertEquals(37, log.endOffset());
+            assertTrue(log.segmentCount() < segmentsBefore);
+            assertEquals("m36", text(log.read(36)));
+            assertThrows(OffsetOutOfRangeException.class, () -> log.read(37));
+            assertEquals(37, log.append(null, bytes("replacement")));
+            assertEquals("replacement", text(log.read(37)));
+            for (int i = 0; i < 100; i++) {
+                log.append(null, bytes("more" + i)); // keeps rolling normally afterwards
+            }
+            assertEquals("more99", text(log.read(137)));
+        }
+    }
+
+    @Test
+    void truncationSurvivesARestartAndACrash() throws IOException {
+        try (Log log = Log.open(dir, SMALL)) {
+            for (int i = 0; i < 60; i++) {
+                log.append(null, bytes("m" + i));
+            }
+            log.truncateFrom(10);
+            log.append(null, bytes("new10"));
+        }
+        try (Log log = Log.open(dir, SMALL)) {
+            assertEquals(11, log.endOffset());
+            assertEquals("new10", text(log.read(10)));
+            log.truncateFrom(5);
+        }
+        forgetCleanShutdown();
+        try (Log log = Log.open(dir, SMALL)) {
+            assertEquals(5, log.endOffset());
+            assertEquals("m4", text(log.read(4)));
+        }
+    }
+
+    @Test
+    void truncateEdgeCases() {
+        try (Log log = Log.open(dir, SMALL)) {
+            log.truncateFrom(0); // empty log: nothing to do
+            for (int i = 0; i < 50; i++) {
+                log.append(null, bytes("m" + i));
+            }
+            log.truncateFrom(50); // at the end: nothing to do
+            assertEquals(50, log.endOffset());
+
+            log.truncateFrom(0); // everything
+
+            assertEquals(0, log.endOffset());
+            assertEquals(1, log.segmentCount());
+            assertEquals(0, log.append(null, bytes("fresh")));
+        }
+    }
+
     // ---- validation --------------------------------------------------------------
 
     @Test

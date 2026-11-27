@@ -245,6 +245,35 @@ final class Segment implements Closeable {
         return record;
     }
 
+    /** Reopens a sealed segment for writing, so its end can be truncated. */
+    void makeActive() throws IOException {
+        if (active) {
+            return;
+        }
+        index.close();
+        index = Index.openForAppend(indexPath, config.indexBytes());
+        active = true;
+    }
+
+    /** Removes every record with an offset of {@code offset} or more. */
+    void truncateTo(long offset) throws IOException {
+        if (!active) {
+            throw new IllegalStateException("segment " + baseOffset + " is read-only");
+        }
+        if (offset >= nextOffset) {
+            return;
+        }
+        if (offset < baseOffset) {
+            throw new IllegalArgumentException("offset " + offset + " is before segment " + baseOffset);
+        }
+        int keep = (int) (offset - baseOffset);
+        long position = keep < index.entries() ? index.positionOf(keep) : store.size();
+        store.truncateTo(position);
+        index.truncate(keep);
+        nextOffset = offset;
+        maxTimestamp = keep == 0 ? -1 : read(offset - 1).timestamp();
+    }
+
     /** Called when a newer segment takes over: flush everything and reopen read-only. */
     void makeReadOnly() throws IOException {
         if (!active) {

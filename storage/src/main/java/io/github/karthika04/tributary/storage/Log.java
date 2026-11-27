@@ -238,6 +238,43 @@ public final class Log implements Closeable {
         active = next;
     }
 
+    /**
+     * Deletes every record from {@code offset} to the end, so the next append gets
+     * {@code offset} again. Normal message queues never need this; Raft does, when a
+     * follower must drop entries written by an old leader that were never committed.
+     *
+     * @throws OffsetOutOfRangeException if {@code offset} was already deleted by retention
+     */
+    public void truncateFrom(long offset) {
+        lock.writeLock().lock();
+        try {
+            ensureOpen();
+            long start = segments.firstKey();
+            long end = active.nextOffset();
+            if (offset >= end) {
+                return;
+            }
+            if (offset < start) {
+                throw new OffsetOutOfRangeException(offset, start, end);
+            }
+            long targetBase = segments.floorKey(offset);
+            // Whole segments after the target go first, newest first. If we crash part-way,
+            // reopening finds a shorter log without gaps.
+            while (segments.lastKey() > targetBase) {
+                segments.pollLastEntry().getValue().delete();
+            }
+            Segment target = segments.get(targetBase);
+            target.makeActive();
+            target.truncateTo(offset);
+            target.flush();
+            active = target;
+        } catch (IOException e) {
+            throw new UncheckedIOException("truncate failed in " + dir, e);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     /** Reads one record. */
     public Record read(long offset) {
         lock.readLock().lock();
