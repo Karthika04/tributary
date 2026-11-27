@@ -1,0 +1,501 @@
+seed,cluster,round,fault,injected,acknowledged,failed,lost,wrong_offsets,out_of_order,foreign,duplicates,failed_but_stored,longest_gap_ms,ok
+2026,0,0,KILL_LEADER,"killed 1 (leader)",4722,0,0,0,0,0,1,0,714,true
+2026,0,1,KILL_FOLLOWER,"killed 3",6448,0,0,0,0,0,0,0,15,true
+2026,0,2,KILL_ALL,"killed all",1219,6,0,0,0,0,0,1,4542,true
+2026,0,3,PARTITION_LEADER,"isolated 3 (leader)",4067,0,0,0,0,0,1,0,1120,true
+2026,0,4,PARTITION_FOLLOWER,"isolated 3",6575,0,0,0,0,0,0,0,14,true
+2026,0,5,PAUSE_LEADER,"paused 2 (leader)",3366,0,0,0,0,0,0,0,2461,true
+2026,0,6,SLOW_NETWORK,"added 164 ms latency",3650,0,0,0,0,0,0,0,333,true
+2026,0,7,KILL_LEADER,"killed 1 (leader)",5731,0,0,0,0,0,1,0,1512,true
+2026,0,8,KILL_FOLLOWER,"killed 1",8503,0,0,0,0,0,0,0,15,true
+2026,0,9,KILL_ALL,"killed all",1080,9,0,0,0,0,0,2,4545,true
+2026,1,0,KILL_FOLLOWER,"killed 2",6366,0,0,0,0,0,0,0,13,true
+2026,1,1,KILL_ALL,"killed all",1122,6,0,0,0,0,0,3,4556,true
+2026,1,2,PARTITION_LEADER,"isolated 1 (leader)",6130,0,0,0,0,0,0,0,1118,true
+2026,1,3,PARTITION_FOLLOWER,"isolated 1",6069,0,0,0,0,0,0,0,72,true
+2026,1,4,PAUSE_LEADER,"paused 3 (leader)",3126,0,0,0,0,0,1,0,2636,true
+2026,1,5,SLOW_NETWORK,"added 54 ms latency",3473,0,0,0,0,0,0,0,111,true
+2026,1,6,KILL_LEADER,"killed 1 (leader)",3205,3,0,0,0,0,0,2,1816,true
+2026,1,7,KILL_FOLLOWER,"killed 2",5963,0,0,0,0,0,0,0,14,true
+2026,1,8,KILL_ALL,"killed all",936,6,0,0,0,0,0,3,4559,true
+2026,1,9,PARTITION_LEADER,"isolated 3 (leader)",5256,0,0,0,0,0,2,0,1106,true
+2026,2,0,KILL_ALL,"killed all",1206,3,0,0,0,0,0,0,3029,true
+2026,2,1,PARTITION_LEADER,"isolated 1 (leader)",5653,0,0,0,0,0,0,0,1120,true
+2026,2,2,PARTITION_FOLLOWER,"isolated 1",8486,0,0,0,0,0,0,0,43,true
+2026,2,3,PAUSE_LEADER,"paused 3 (leader)",3101,0,0,0,0,0,3,0,2310,true
+2026,2,4,SLOW_NETWORK,"added 158 ms latency",3022,0,0,0,0,0,1,0,1694,true
+2026,2,5,KILL_LEADER,"killed 1 (leader)",6414,0,0,0,0,0,2,0,714,true
+2026,2,6,KILL_FOLLOWER,"killed 3",7269,0,0,0,0,0,0,0,49,true
+2026,2,7,KILL_ALL,"killed all",1007,6,0,0,0,0,0,2,4561,true
+2026,2,8,PARTITION_LEADER,"isolated 2 (leader)",3417,0,0,0,0,0,2,0,912,true
+2026,2,9,PARTITION_FOLLOWER,"isolated 1",4519,0,0,0,0,0,0,0,22,true
+2026,3,0,PARTITION_LEADER,"isolated 2 (leader)",3061,0,0,0,0,0,0,0,1104,true
+2026,3,1,PARTITION_FOLLOWER,"isolated 3",4996,0,0,0,0,0,0,0,30,true
+2026,3,2,PAUSE_LEADER,"paused 1 (leader)",2768,0,0,0,0,0,0,0,1807,true
+2026,3,3,SLOW_NETWORK,"added 182 ms latency",3449,0,0,0,0,0,0,0,369,true
+2026,3,4,KILL_LEADER,"killed 3 (leader)",4415,0,0,0,0,0,2,0,710,true
+2026,3,5,KILL_FOLLOWER,"killed 2",6103,0,0,0,0,0,0,0,48,true
+2026,3,6,KILL_ALL,"killed all",1161,6,0,0,0,0,0,3,4530,true
+2026,3,7,PARTITION_LEADER,"isolated 1 (leader)",6118,0,0,0,0,0,2,0,1116,true
+2026,3,8,PARTITION_FOLLOWER,"isolated 1",6514,0,0,0,0,0,0,0,6,true
+2026,3,9,PAUSE_LEADER,"paused 3 (leader)",2970,0,0,0,0,0,1,0,2437,true
+2026,4,0,PARTITION_FOLLOWER,"isolated 1",6168,0,0,0,0,0,0,0,13,true
+2026,4,1,PAUSE_LEADER,"paused 3 (leader)",3779,0,0,0,0,0,1,0,1848,true
+2026,4,2,SLOW_NETWORK,"added 153 ms latency",3844,0,0,0,0,0,0,0,309,true
+2026,4,3,KILL_LEADER,"killed 1 (leader)",5109,0,0,0,0,0,3,0,714,true
+2026,4,4,KILL_FOLLOWER,"killed 1",6612,0,0,0,0,0,0,0,12,true
+2026,4,5,KILL_ALL,"killed all",1013,6,0,0,0,0,0,3,4560,true
+2026,4,6,PARTITION_LEADER,"isolated 3 (leader)",6282,0,0,0,0,0,1,0,917,true
+2026,4,7,PARTITION_FOLLOWER,"isolated 2",8245,0,0,0,0,0,0,0,6,true
+2026,4,8,PAUSE_LEADER,"paused 1 (leader)",3599,0,0,0,0,0,2,0,2810,true
+2026,4,9,SLOW_NETWORK,"added 237 ms latency",3419,0,0,0,0,0,0,0,476,true
+2026,5,0,PAUSE_LEADER,"paused 2 (leader)",2674,0,0,0,0,0,1,0,2008,true
+2026,5,1,SLOW_NETWORK,"added 205 ms latency",3406,0,0,0,0,0,0,0,412,true
+2026,5,2,KILL_LEADER,"killed 1 (leader)",5874,0,0,0,0,0,2,0,709,true
+2026,5,3,KILL_FOLLOWER,"killed 1",7002,0,0,0,0,0,0,0,10,true
+2026,5,4,KILL_ALL,"killed all",1241,9,0,0,0,0,0,1,4552,true
+2026,5,5,PARTITION_LEADER,"isolated 3 (leader)",5064,0,0,0,0,0,0,0,1120,true
+2026,5,6,PARTITION_FOLLOWER,"isolated 1",6678,0,0,0,0,0,0,0,11,true
+2026,5,7,PAUSE_LEADER,"paused 2 (leader)",3513,0,0,0,0,0,0,0,1517,true
+2026,5,8,SLOW_NETWORK,"added 83 ms latency",3787,0,0,0,0,0,0,0,169,true
+2026,5,9,KILL_LEADER,"killed 1 (leader)",4927,0,0,0,0,0,2,0,1509,true
+2026,6,0,SLOW_NETWORK,"added 107 ms latency",3253,0,0,0,0,0,0,0,219,true
+2026,6,1,KILL_LEADER,"killed 2 (leader)",5682,0,0,0,0,0,1,0,713,true
+2026,6,2,KILL_FOLLOWER,"killed 2",7171,0,0,0,0,0,0,0,7,true
+2026,6,3,KILL_ALL,"killed all",1506,6,0,0,0,0,0,0,3348,true
+2026,6,4,PARTITION_LEADER,"isolated 2 (leader)",7530,0,0,0,0,0,1,0,911,true
+2026,6,5,PARTITION_FOLLOWER,"isolated 2",7059,0,0,0,0,0,0,0,7,true
+2026,6,6,PAUSE_LEADER,"paused 3 (leader)",3370,0,0,0,0,0,1,0,2430,true
+2026,6,7,SLOW_NETWORK,"added 151 ms latency",3640,0,0,0,0,0,0,0,304,true
+2026,6,8,KILL_LEADER,"killed 2 (leader)",4654,0,0,0,0,0,3,0,709,true
+2026,6,9,KILL_FOLLOWER,"killed 1",6987,0,0,0,0,0,0,0,9,true
+2026,7,0,KILL_LEADER,"killed 2 (leader)",6245,0,0,0,0,0,1,0,712,true
+2026,7,1,KILL_FOLLOWER,"killed 1",7256,0,0,0,0,0,0,0,11,true
+2026,7,2,KILL_ALL,"killed all",1789,6,0,0,0,0,0,3,3047,true
+2026,7,3,PARTITION_LEADER,"isolated 3 (leader)",6251,0,0,0,0,0,0,0,1111,true
+2026,7,4,PARTITION_FOLLOWER,"isolated 1",7836,0,0,0,0,0,0,0,14,true
+2026,7,5,PAUSE_LEADER,"paused 2 (leader)",3164,0,0,0,0,0,1,0,2835,true
+2026,7,6,SLOW_NETWORK,"added 67 ms latency",3154,0,0,0,0,0,0,0,142,true
+2026,7,7,KILL_LEADER,"killed 1 (leader)",4890,0,0,0,0,0,1,0,1513,true
+2026,7,8,KILL_FOLLOWER,"killed 2",7397,0,0,0,0,0,0,0,19,true
+2026,7,9,KILL_ALL,"killed all",1170,6,0,0,0,0,0,0,4542,true
+2026,8,0,KILL_FOLLOWER,"killed 2",5849,0,0,0,0,0,0,0,17,true
+2026,8,1,KILL_ALL,"killed all",1213,9,0,0,0,0,0,0,4546,true
+2026,8,2,PARTITION_LEADER,"isolated 1 (leader)",6290,0,0,0,0,0,1,0,1114,true
+2026,8,3,PARTITION_FOLLOWER,"isolated 1",8484,0,0,0,0,0,0,0,73,true
+2026,8,4,PAUSE_LEADER,"paused 3 (leader)",3699,0,0,0,0,0,0,0,2668,true
+2026,8,5,SLOW_NETWORK,"added 129 ms latency",3930,0,0,0,0,0,0,0,262,true
+2026,8,6,KILL_LEADER,"killed 2 (leader)",7114,0,0,0,0,0,1,0,710,true
+2026,8,7,KILL_FOLLOWER,"killed 1",7081,0,0,0,0,0,0,0,94,true
+2026,8,8,KILL_ALL,"killed all",1090,6,0,0,0,0,0,3,4582,true
+2026,8,9,PARTITION_LEADER,"isolated 3 (leader)",5637,0,0,0,0,0,2,0,907,true
+2026,9,0,KILL_ALL,"killed all",467,6,0,0,0,0,0,1,4565,true
+2026,9,1,PARTITION_LEADER,"isolated 2 (leader)",6119,0,0,0,0,0,0,0,913,true
+2026,9,2,PARTITION_FOLLOWER,"isolated 2",6869,0,0,0,0,0,0,0,34,true
+2026,9,3,PAUSE_LEADER,"paused 3 (leader)",3587,0,0,0,0,0,0,0,2830,true
+2026,9,4,SLOW_NETWORK,"added 235 ms latency",3105,0,0,0,0,0,0,0,472,true
+2026,9,5,KILL_LEADER,"killed 2 (leader)",5691,0,0,0,0,0,1,0,709,true
+2026,9,6,KILL_FOLLOWER,"killed 2",6666,0,0,0,0,0,0,0,12,true
+2026,9,7,KILL_ALL,"killed all",1124,9,0,0,0,0,0,1,4565,true
+2026,9,8,PARTITION_LEADER,"isolated 2 (leader)",3553,0,0,0,0,0,1,0,1112,true
+2026,9,9,PARTITION_FOLLOWER,"isolated 2",8300,0,0,0,0,0,0,0,71,true
+2026,10,0,PARTITION_LEADER,"isolated 2 (leader)",203,0,0,0,0,0,3,0,6521,true
+2026,10,1,PARTITION_FOLLOWER,"isolated 1",1104,0,0,0,0,0,3,0,6514,true
+2026,10,2,PAUSE_LEADER,"paused 2 (leader)",3948,0,0,0,0,0,0,0,2136,true
+2026,10,3,SLOW_NETWORK,"added 184 ms latency",3871,0,0,0,0,0,0,0,370,true
+2026,10,4,KILL_LEADER,"killed 2 (leader)",1045,0,0,0,0,0,3,0,5318,true
+2026,10,5,KILL_FOLLOWER,"killed 2",932,0,0,0,0,0,3,0,6516,true
+2026,10,6,KILL_ALL,"killed all",1855,3,0,0,0,0,0,1,3830,true
+2026,10,7,PARTITION_LEADER,"isolated 1 (leader)",3557,3,0,0,0,0,0,3,2612,true
+2026,10,8,PARTITION_FOLLOWER,"isolated 2",3261,3,0,0,0,0,0,3,2615,true
+2026,10,9,PAUSE_LEADER,"paused 1 (leader)",1889,0,0,0,0,0,3,0,3073,true
+2026,11,0,PARTITION_FOLLOWER,"isolated 3",5805,0,0,0,0,0,0,0,13,true
+2026,11,1,PAUSE_LEADER,"paused 1 (leader)",3317,0,0,0,0,0,1,0,3301,true
+2026,11,2,SLOW_NETWORK,"added 245 ms latency",3581,0,0,0,0,0,0,0,492,true
+2026,11,3,KILL_LEADER,"killed 3 (leader)",3575,0,0,0,0,0,1,0,1515,true
+2026,11,4,KILL_FOLLOWER,"killed 1",7617,0,0,0,0,0,0,0,19,true
+2026,11,5,KILL_ALL,"killed all",1002,6,0,0,0,0,0,2,4541,true
+2026,11,6,PARTITION_LEADER,"isolated 3 (leader)",4216,0,0,0,0,0,0,0,913,true
+2026,11,7,PARTITION_FOLLOWER,"isolated 3",7512,0,0,0,0,0,0,0,13,true
+2026,11,8,PAUSE_LEADER,"paused 1 (leader)",3382,0,0,0,0,0,3,0,2839,true
+2026,11,9,SLOW_NETWORK,"added 135 ms latency",3316,0,0,0,0,0,0,0,137,true
+2026,12,0,PAUSE_LEADER,"paused 3 (leader)",2747,0,0,0,0,0,3,0,2815,true
+2026,12,1,SLOW_NETWORK,"added 225 ms latency",3672,0,0,0,0,0,0,0,452,true
+2026,12,2,KILL_LEADER,"killed 2 (leader)",7356,0,0,0,0,0,1,0,712,true
+2026,12,3,KILL_FOLLOWER,"killed 1",6173,0,0,0,0,0,0,0,21,true
+2026,12,4,KILL_ALL,"killed all",1437,9,0,0,0,0,0,1,4550,true
+2026,12,5,PARTITION_LEADER,"isolated 2 (leader)",5658,0,0,0,0,0,0,0,909,true
+2026,12,6,PARTITION_FOLLOWER,"isolated 1",6203,0,0,0,0,0,0,0,6,true
+2026,12,7,PAUSE_LEADER,"paused 3 (leader)",3470,0,0,0,0,0,0,0,1887,true
+2026,12,8,SLOW_NETWORK,"added 102 ms latency",3571,0,0,0,0,0,0,0,206,true
+2026,12,9,KILL_LEADER,"killed 1 (leader)",4821,0,0,0,0,0,1,0,1510,true
+2026,13,0,SLOW_NETWORK,"added 150 ms latency",3295,0,0,0,0,0,0,0,303,true
+2026,13,1,KILL_LEADER,"killed 3 (leader)",7356,0,0,0,0,0,1,0,710,true
+2026,13,2,KILL_FOLLOWER,"killed 2",7281,0,0,0,0,0,0,0,76,true
+2026,13,3,KILL_ALL,"killed all",1241,6,0,0,0,0,0,2,4561,true
+2026,13,4,PARTITION_LEADER,"isolated 2 (leader)",7010,0,0,0,0,0,3,0,907,true
+2026,13,5,PARTITION_FOLLOWER,"isolated 2",7487,0,0,0,0,0,0,0,10,true
+2026,13,6,PAUSE_LEADER,"paused 3 (leader)",3824,0,0,0,0,0,0,0,2785,true
+2026,13,7,SLOW_NETWORK,"added 148 ms latency",3635,0,0,0,0,0,0,0,298,true
+2026,13,8,KILL_LEADER,"killed 2 (leader)",5878,0,0,0,0,0,2,0,709,true
+2026,13,9,KILL_FOLLOWER,"killed 2",7008,0,0,0,0,0,0,0,13,true
+2026,14,0,KILL_LEADER,"killed 2 (leader)",6957,0,0,0,0,0,2,0,714,true
+2026,14,1,KILL_FOLLOWER,"killed 1",7065,0,0,0,0,0,0,0,11,true
+2026,14,2,KILL_ALL,"killed all",1628,6,0,0,0,0,0,0,3746,true
+2026,14,3,PARTITION_LEADER,"isolated 2 (leader)",6338,0,0,0,0,0,2,0,912,true
+2026,14,4,PARTITION_FOLLOWER,"isolated 2",9578,0,0,0,0,0,0,0,7,true
+2026,14,5,PAUSE_LEADER,"paused 3 (leader)",4260,0,0,0,0,0,0,0,2418,true
+2026,14,6,SLOW_NETWORK,"added 80 ms latency",4302,0,0,0,0,0,0,0,162,true
+2026,14,7,KILL_LEADER,"killed 2 (leader)",6628,0,0,0,0,0,2,0,708,true
+2026,14,8,KILL_FOLLOWER,"killed 2",7096,0,0,0,0,0,0,0,11,true
+2026,14,9,KILL_ALL,"killed all",1232,6,0,0,0,0,0,3,4536,true
+2026,15,0,KILL_FOLLOWER,"killed 1",6791,0,0,0,0,0,0,0,9,true
+2026,15,1,KILL_ALL,"killed all",1186,6,0,0,0,0,0,3,4551,true
+2026,15,2,PARTITION_LEADER,"isolated 2 (leader)",5155,0,0,0,0,0,0,0,916,true
+2026,15,3,PARTITION_FOLLOWER,"isolated 2",7248,0,0,0,0,0,0,0,5,true
+2026,15,4,PAUSE_LEADER,"paused 3 (leader)",3925,0,0,0,0,0,2,0,2575,true
+2026,15,5,SLOW_NETWORK,"added 174 ms latency",4073,0,0,0,0,0,0,0,350,true
+2026,15,6,KILL_LEADER,"killed 2 (leader)",7656,0,0,0,0,0,1,0,708,true
+2026,15,7,KILL_FOLLOWER,"killed 2",7594,0,0,0,0,0,0,0,12,true
+2026,15,8,KILL_ALL,"killed all",1147,6,0,0,0,0,0,0,4538,true
+2026,15,9,PARTITION_LEADER,"isolated 2 (leader)",5600,0,0,0,0,0,2,0,1108,true
+2026,16,0,KILL_ALL,"killed all",1694,6,0,0,0,0,0,3,3031,true
+2026,16,1,PARTITION_LEADER,"isolated 3 (leader)",5140,0,0,0,0,0,2,0,1109,true
+2026,16,2,PARTITION_FOLLOWER,"isolated 1",6825,0,0,0,0,0,0,0,13,true
+2026,16,3,PAUSE_LEADER,"paused 2 (leader)",4526,0,0,0,0,0,0,0,1748,true
+2026,16,4,SLOW_NETWORK,"added 161 ms latency",3853,0,0,0,0,0,0,0,325,true
+2026,16,5,KILL_LEADER,"killed 1 (leader)",5207,0,0,0,0,0,3,0,1512,true
+2026,16,6,KILL_FOLLOWER,"killed 2",7310,0,0,0,0,0,0,0,12,true
+2026,16,7,KILL_ALL,"killed all",1191,6,0,0,0,0,0,3,3656,true
+2026,16,8,PARTITION_LEADER,"isolated 3 (leader)",5852,0,0,0,0,0,1,0,1118,true
+2026,16,9,PARTITION_FOLLOWER,"isolated 3",8488,0,0,0,0,0,0,0,7,true
+2026,17,0,PARTITION_LEADER,"isolated 3 (leader)",6818,0,0,0,0,0,2,0,909,true
+2026,17,1,PARTITION_FOLLOWER,"isolated 3",7290,0,0,0,0,0,0,0,6,true
+2026,17,2,PAUSE_LEADER,"paused 1 (leader)",3913,0,0,0,0,0,2,0,1872,true
+2026,17,3,SLOW_NETWORK,"added 69 ms latency",4154,0,0,0,0,0,0,0,140,true
+2026,17,4,KILL_LEADER,"killed 2 (leader)",6033,0,0,0,0,0,2,0,1509,true
+2026,17,5,KILL_FOLLOWER,"killed 2",6291,0,0,0,0,0,0,0,11,true
+2026,17,6,KILL_ALL,"killed all",1091,9,0,0,0,0,0,1,4537,true
+2026,17,7,PARTITION_LEADER,"isolated 2 (leader)",5941,0,0,0,0,0,0,0,913,true
+2026,17,8,PARTITION_FOLLOWER,"isolated 1",7970,0,0,0,0,0,0,0,18,true
+2026,17,9,PAUSE_LEADER,"paused 3 (leader)",3426,0,0,0,0,0,2,0,2403,true
+2026,18,0,PARTITION_FOLLOWER,"isolated 1",7900,0,0,0,0,0,0,0,14,true
+2026,18,1,PAUSE_LEADER,"paused 3 (leader)",4340,0,0,0,0,0,1,0,3009,true
+2026,18,2,SLOW_NETWORK,"added 177 ms latency",4548,0,0,0,0,0,0,0,356,true
+2026,18,3,KILL_LEADER,"killed 1 (leader)",5697,0,0,0,0,0,1,0,1510,true
+2026,18,4,KILL_FOLLOWER,"killed 1",6654,0,0,0,0,0,0,0,13,true
+2026,18,5,KILL_ALL,"killed all",1215,6,0,0,0,0,0,3,4546,true
+2026,18,6,PARTITION_LEADER,"isolated 3 (leader)",5412,0,0,0,0,0,2,0,1117,true
+2026,18,7,PARTITION_FOLLOWER,"isolated 3",8851,0,0,0,0,0,0,0,8,true
+2026,18,8,PAUSE_LEADER,"paused 2 (leader)",3870,0,0,0,0,0,2,0,2133,true
+2026,18,9,SLOW_NETWORK,"added 136 ms latency",4044,0,0,0,0,0,0,0,275,true
+2026,19,0,PAUSE_LEADER,"paused 1 (leader)",3549,0,0,0,0,0,0,0,1617,true
+2026,19,1,SLOW_NETWORK,"added 238 ms latency",3612,0,0,0,0,0,0,0,478,true
+2026,19,2,KILL_LEADER,"killed 2 (leader)",7436,0,0,0,0,0,1,0,710,true
+2026,19,3,KILL_FOLLOWER,"killed 1",6918,0,0,0,0,0,0,0,8,true
+2026,19,4,KILL_ALL,"killed all",1045,6,0,0,0,0,0,3,4553,true
+2026,19,5,PARTITION_LEADER,"isolated 3 (leader)",6472,0,0,0,0,0,1,0,917,true
+2026,19,6,PARTITION_FOLLOWER,"isolated 2",7681,0,0,0,0,0,0,0,8,true
+2026,19,7,PAUSE_LEADER,"paused 1 (leader)",3626,0,0,0,0,0,2,0,2110,true
+2026,19,8,SLOW_NETWORK,"added 77 ms latency",3763,0,0,0,0,0,0,0,157,true
+2026,19,9,KILL_LEADER,"killed 2 (leader)",5128,0,0,0,0,0,0,0,711,true
+2026,20,0,SLOW_NETWORK,"added 121 ms latency",3484,0,0,0,0,0,0,0,244,true
+2026,20,1,KILL_LEADER,"killed 1 (leader)",5920,0,0,0,0,0,1,0,712,true
+2026,20,2,KILL_FOLLOWER,"killed 3",8154,0,0,0,0,0,0,0,12,true
+2026,20,3,KILL_ALL,"killed all",1603,9,0,0,0,0,0,1,4536,true
+2026,20,4,PARTITION_LEADER,"isolated 3 (leader)",6887,0,0,0,0,0,3,0,1125,true
+2026,20,5,PARTITION_FOLLOWER,"isolated 3",7360,0,0,0,0,0,0,0,10,true
+2026,20,6,PAUSE_LEADER,"paused 2 (leader)",3274,0,0,0,0,0,1,0,3210,true
+2026,20,7,SLOW_NETWORK,"added 192 ms latency",3669,0,0,0,0,0,0,0,386,true
+2026,20,8,KILL_LEADER,"killed 1 (leader)",5588,0,0,0,0,0,2,0,1510,true
+2026,20,9,KILL_FOLLOWER,"killed 2",8263,0,0,0,0,0,0,0,18,true
+2026,21,0,KILL_LEADER,"killed 2 (leader)",5684,0,0,0,0,0,1,0,1512,true
+2026,21,1,KILL_FOLLOWER,"killed 3",8425,0,0,0,0,0,0,0,11,true
+2026,21,2,KILL_ALL,"killed all",1267,6,0,0,0,0,0,3,4546,true
+2026,21,3,PARTITION_LEADER,"isolated 1 (leader)",6938,0,0,0,0,0,2,0,915,true
+2026,21,4,PARTITION_FOLLOWER,"isolated 3",8317,0,0,0,0,0,0,0,17,true
+2026,21,5,PAUSE_LEADER,"paused 2 (leader)",4315,0,0,0,0,0,2,0,2671,true
+2026,21,6,SLOW_NETWORK,"added 207 ms latency",4396,0,0,0,0,0,0,0,416,true
+2026,21,7,KILL_LEADER,"killed 3 (leader)",5055,0,0,0,0,0,1,0,1509,true
+2026,21,8,KILL_FOLLOWER,"killed 1",7263,0,0,0,0,0,0,0,7,true
+2026,21,9,KILL_ALL,"killed all",1278,6,0,0,0,0,0,3,4553,true
+2026,22,0,KILL_FOLLOWER,"killed 2",6368,0,0,0,0,0,0,0,14,true
+2026,22,1,KILL_ALL,"killed all",1236,6,0,0,0,0,0,3,4544,true
+2026,22,2,PARTITION_LEADER,"isolated 1 (leader)",5226,0,0,0,0,0,1,0,1114,true
+2026,22,3,PARTITION_FOLLOWER,"isolated 2",9821,0,0,0,0,0,0,0,7,true
+2026,22,4,PAUSE_LEADER,"paused 3 (leader)",3673,0,0,0,0,0,2,0,3103,true
+2026,22,5,SLOW_NETWORK,"added 174 ms latency",4224,0,0,0,0,0,0,0,350,true
+2026,22,6,KILL_LEADER,"killed 2 (leader)",4431,0,0,0,0,0,2,0,1509,true
+2026,22,7,KILL_FOLLOWER,"killed 2",6981,0,0,0,0,0,0,0,10,true
+2026,22,8,KILL_ALL,"killed all",1027,6,0,0,0,0,0,1,4543,true
+2026,22,9,PARTITION_LEADER,"isolated 3 (leader)",5651,0,0,0,0,0,2,0,908,true
+2026,23,0,KILL_ALL,"killed all",676,6,0,0,0,0,0,3,4543,true
+2026,23,1,PARTITION_LEADER,"isolated 3 (leader)",6634,0,0,0,0,0,0,0,1110,true
+2026,23,2,PARTITION_FOLLOWER,"isolated 3",9048,0,0,0,0,0,0,0,9,true
+2026,23,3,PAUSE_LEADER,"paused 2 (leader)",4134,0,0,0,0,0,0,0,1971,true
+2026,23,4,SLOW_NETWORK,"added 248 ms latency",4022,0,0,0,0,0,0,0,498,true
+2026,23,5,KILL_LEADER,"killed 3 (leader)",5326,0,0,0,0,0,3,0,1513,true
+2026,23,6,KILL_FOLLOWER,"killed 3",7470,0,0,0,0,0,0,0,8,true
+2026,23,7,KILL_ALL,"killed all",1023,6,0,0,0,0,0,3,4571,true
+2026,23,8,PARTITION_LEADER,"isolated 2 (leader)",5849,0,0,0,0,0,1,0,914,true
+2026,23,9,PARTITION_FOLLOWER,"isolated 2",8629,0,0,0,0,0,0,0,14,true
+2026,24,0,PARTITION_LEADER,"isolated 2 (leader)",6123,0,0,0,0,0,0,0,916,true
+2026,24,1,PARTITION_FOLLOWER,"isolated 2",8320,0,0,0,0,0,0,0,5,true
+2026,24,2,PAUSE_LEADER,"paused 3 (leader)",3920,0,0,0,0,0,0,0,1978,true
+2026,24,3,SLOW_NETWORK,"added 138 ms latency",3945,0,0,0,0,0,0,0,284,true
+2026,24,4,KILL_LEADER,"killed 1 (leader)",3717,3,0,0,0,0,0,1,1610,true
+2026,24,5,KILL_FOLLOWER,"killed 3",6066,0,0,0,0,0,0,0,23,true
+2026,24,6,KILL_ALL,"killed all",1307,6,0,0,0,0,0,3,4530,true
+2026,24,7,PARTITION_LEADER,"isolated 2 (leader)",5455,0,0,0,0,0,1,0,917,true
+2026,24,8,PARTITION_FOLLOWER,"isolated 2",8753,0,0,0,0,0,0,0,19,true
+2026,24,9,PAUSE_LEADER,"paused 3 (leader)",4043,0,0,0,0,0,1,0,2591,true
+2026,25,0,PARTITION_FOLLOWER,"isolated 1",8631,0,0,0,0,0,0,0,15,true
+2026,25,1,PAUSE_LEADER,"paused 3 (leader)",3648,0,0,0,0,0,3,0,2290,true
+2026,25,2,SLOW_NETWORK,"added 181 ms latency",3719,0,0,0,0,0,0,0,364,true
+2026,25,3,KILL_LEADER,"killed 1 (leader)",4795,0,0,0,0,0,1,0,713,true
+2026,25,4,KILL_FOLLOWER,"killed 3",7729,0,0,0,0,0,0,0,27,true
+2026,25,5,KILL_ALL,"killed all",1555,6,0,0,0,0,0,3,3040,true
+2026,25,6,PARTITION_LEADER,"isolated 2 (leader)",5139,0,0,0,0,0,2,0,1113,true
+2026,25,7,PARTITION_FOLLOWER,"isolated 3",7743,0,0,0,0,0,0,0,8,true
+2026,25,8,PAUSE_LEADER,"paused 1 (leader)",3678,0,0,0,0,0,2,0,2907,true
+2026,25,9,SLOW_NETWORK,"added 206 ms latency",3730,0,0,0,0,0,0,0,414,true
+2026,26,0,PAUSE_LEADER,"paused 3 (leader)",3569,0,0,0,0,0,0,0,2451,true
+2026,26,1,SLOW_NETWORK,"added 234 ms latency",4192,0,0,0,0,0,0,0,470,true
+2026,26,2,KILL_LEADER,"killed 1 (leader)",6748,0,0,0,0,0,2,0,712,true
+2026,26,3,KILL_FOLLOWER,"killed 3",5849,0,0,0,0,0,0,0,59,true
+2026,26,4,KILL_ALL,"killed all",1537,6,0,0,0,0,0,3,3031,true
+2026,26,5,PARTITION_LEADER,"isolated 2 (leader)",5000,0,0,0,0,0,0,0,1111,true
+2026,26,6,PARTITION_FOLLOWER,"isolated 2",9072,0,0,0,0,0,0,0,11,true
+2026,26,7,PAUSE_LEADER,"paused 1 (leader)",3906,0,0,0,0,0,1,0,2365,true
+2026,26,8,SLOW_NETWORK,"added 139 ms latency",3713,0,0,0,0,0,0,0,280,true
+2026,26,9,KILL_LEADER,"killed 2 (leader)",5842,0,0,0,0,0,3,0,1510,true
+2026,27,0,SLOW_NETWORK,"added 158 ms latency",3432,0,0,0,0,0,0,0,318,true
+2026,27,1,KILL_LEADER,"killed 3 (leader)",6186,0,0,0,0,0,1,0,1512,true
+2026,27,2,KILL_FOLLOWER,"killed 3",6993,0,0,0,0,0,0,0,14,true
+2026,27,3,KILL_ALL,"killed all",2002,6,0,0,0,0,0,2,3363,true
+2026,27,4,PARTITION_LEADER,"isolated 3 (leader)",6972,0,0,0,0,0,1,0,915,true
+2026,27,5,PARTITION_FOLLOWER,"isolated 3",6509,0,0,0,0,0,0,0,7,true
+2026,27,6,PAUSE_LEADER,"paused 1 (leader)",3583,0,0,0,0,0,2,0,2068,true
+2026,27,7,SLOW_NETWORK,"added 225 ms latency",3410,0,0,0,0,0,0,0,452,true
+2026,27,8,KILL_LEADER,"killed 3 (leader)",4211,3,0,0,0,0,0,1,1613,true
+2026,27,9,KILL_FOLLOWER,"killed 2",8475,0,0,0,0,0,0,0,17,true
+2026,28,0,KILL_LEADER,"killed 1 (leader)",4101,0,0,0,0,0,1,0,1516,true
+2026,28,1,KILL_FOLLOWER,"killed 1",8351,0,0,0,0,0,0,0,14,true
+2026,28,2,KILL_ALL,"killed all",1680,6,0,0,0,0,0,3,3031,true
+2026,28,3,PARTITION_LEADER,"isolated 3 (leader)",8195,0,0,0,0,0,3,0,914,true
+2026,28,4,PARTITION_FOLLOWER,"isolated 2",8710,0,0,0,0,0,0,0,8,true
+2026,28,5,PAUSE_LEADER,"paused 1 (leader)",4072,0,0,0,0,0,2,0,1625,true
+2026,28,6,SLOW_NETWORK,"added 213 ms latency",4604,0,0,0,0,0,0,0,428,true
+2026,28,7,KILL_LEADER,"killed 2 (leader)",4117,0,0,0,0,0,2,0,1509,true
+2026,28,8,KILL_FOLLOWER,"killed 2",8392,0,0,0,0,0,0,0,13,true
+2026,28,9,KILL_ALL,"killed all",1319,6,0,0,0,0,0,3,3639,true
+2026,29,0,KILL_FOLLOWER,"killed 2",7603,0,0,0,0,0,0,0,16,true
+2026,29,1,KILL_ALL,"killed all",1292,6,0,0,0,0,0,3,4547,true
+2026,29,2,PARTITION_LEADER,"isolated 3 (leader)",6654,0,0,0,0,0,1,0,1110,true
+2026,29,3,PARTITION_FOLLOWER,"isolated 3",9354,0,0,0,0,0,0,0,7,true
+2026,29,4,PAUSE_LEADER,"paused 2 (leader)",4213,0,0,0,0,0,0,0,2468,true
+2026,29,5,SLOW_NETWORK,"added 165 ms latency",4065,0,0,0,0,0,0,0,332,true
+2026,29,6,KILL_LEADER,"killed 3 (leader)",4075,0,0,0,0,0,3,0,1509,true
+2026,29,7,KILL_FOLLOWER,"killed 3",6528,0,0,0,0,0,0,0,12,true
+2026,29,8,KILL_ALL,"killed all",1137,6,0,0,0,0,0,3,4526,true
+2026,29,9,PARTITION_LEADER,"isolated 2 (leader)",6370,0,0,0,0,0,0,0,914,true
+2026,30,0,KILL_ALL,"killed all",1548,6,0,0,0,0,0,0,3329,true
+2026,30,1,PARTITION_LEADER,"isolated 2 (leader)",4929,0,0,0,0,0,2,0,1114,true
+2026,30,2,PARTITION_FOLLOWER,"isolated 2",7822,0,0,0,0,0,0,0,45,true
+2026,30,3,PAUSE_LEADER,"paused 1 (leader)",3731,0,0,0,0,0,3,0,2544,true
+2026,30,4,SLOW_NETWORK,"added 116 ms latency",3873,0,0,0,0,0,0,0,235,true
+2026,30,5,KILL_LEADER,"killed 3 (leader)",4362,3,0,0,0,0,0,1,1610,true
+2026,30,6,KILL_FOLLOWER,"killed 2",8244,0,0,0,0,0,0,0,12,true
+2026,30,7,KILL_ALL,"killed all",1393,6,0,0,0,0,0,3,3762,true
+2026,30,8,PARTITION_LEADER,"isolated 3 (leader)",5886,0,0,0,0,0,2,0,915,true
+2026,30,9,PARTITION_FOLLOWER,"isolated 3",7770,0,0,0,0,0,0,0,24,true
+2026,31,0,PARTITION_LEADER,"isolated 1 (leader)",4617,0,0,0,0,0,1,0,1123,true
+2026,31,1,PARTITION_FOLLOWER,"isolated 1",7777,0,0,0,0,0,0,0,8,true
+2026,31,2,PAUSE_LEADER,"paused 3 (leader)",4268,0,0,0,0,0,1,0,2763,true
+2026,31,3,SLOW_NETWORK,"added 238 ms latency",3853,0,0,0,0,0,0,0,479,true
+2026,31,4,KILL_LEADER,"killed 1 (leader)",5782,0,0,0,0,0,1,0,713,true
+2026,31,5,KILL_FOLLOWER,"killed 1",7368,0,0,0,0,0,0,0,40,true
+2026,31,6,KILL_ALL,"killed all",1177,9,0,0,0,0,0,2,4538,true
+2026,31,7,PARTITION_LEADER,"isolated 3 (leader)",4801,0,0,0,0,0,2,0,1112,true
+2026,31,8,PARTITION_FOLLOWER,"isolated 3",8530,0,0,0,0,0,0,0,5,true
+2026,31,9,PAUSE_LEADER,"paused 2 (leader)",3425,0,0,0,0,0,2,0,2979,true
+2026,32,0,PARTITION_FOLLOWER,"isolated 1",7113,0,0,0,0,0,0,0,10,true
+2026,32,1,PAUSE_LEADER,"paused 2 (leader)",3615,0,0,0,0,0,2,0,3206,true
+2026,32,2,SLOW_NETWORK,"added 208 ms latency",4241,0,0,0,0,0,0,0,420,true
+2026,32,3,KILL_LEADER,"killed 1 (leader)",4102,0,0,0,0,0,2,0,1515,true
+2026,32,4,KILL_FOLLOWER,"killed 1",8124,0,0,0,0,0,0,0,12,true
+2026,32,5,KILL_ALL,"killed all",1780,6,0,0,0,0,0,1,3355,true
+2026,32,6,PARTITION_LEADER,"isolated 1 (leader)",5488,0,0,0,0,0,0,0,908,true
+2026,32,7,PARTITION_FOLLOWER,"isolated 1",6375,0,0,0,0,0,0,0,9,true
+2026,32,8,PAUSE_LEADER,"paused 2 (leader)",3743,0,0,0,0,0,2,0,2639,true
+2026,32,9,SLOW_NETWORK,"added 71 ms latency",3824,0,0,0,0,0,0,0,147,true
+2026,33,0,PAUSE_LEADER,"paused 2 (leader)",2828,0,0,0,0,0,3,0,3095,true
+2026,33,1,SLOW_NETWORK,"added 96 ms latency",3891,0,0,0,0,0,0,0,195,true
+2026,33,2,KILL_LEADER,"killed 1 (leader)",6908,0,0,0,0,0,3,0,710,true
+2026,33,3,KILL_FOLLOWER,"killed 1",6997,0,0,0,0,0,0,0,13,true
+2026,33,4,KILL_ALL,"killed all",1450,6,0,0,0,0,0,2,3046,true
+2026,33,5,PARTITION_LEADER,"isolated 2 (leader)",5469,0,0,0,0,0,2,0,919,true
+2026,33,6,PARTITION_FOLLOWER,"isolated 2",8131,0,0,0,0,0,0,0,20,true
+2026,33,7,PAUSE_LEADER,"paused 3 (leader)",3352,0,0,0,0,0,1,0,3111,true
+2026,33,8,SLOW_NETWORK,"added 218 ms latency",3438,0,0,0,0,0,0,0,439,true
+2026,33,9,KILL_LEADER,"killed 2 (leader)",2693,3,0,0,0,0,0,1,1815,true
+2026,34,0,SLOW_NETWORK,"added 221 ms latency",3113,0,0,0,0,0,0,0,444,true
+2026,34,1,KILL_LEADER,"killed 2 (leader)",4129,0,0,0,0,0,1,0,1518,true
+2026,34,2,KILL_FOLLOWER,"killed 3",7548,0,0,0,0,0,0,0,8,true
+2026,34,3,KILL_ALL,"killed all",1679,6,0,0,0,0,0,3,3029,true
+2026,34,4,PARTITION_LEADER,"isolated 2 (leader)",6464,0,0,0,0,0,0,0,911,true
+2026,34,5,PARTITION_FOLLOWER,"isolated 2",9038,0,0,0,0,0,0,0,6,true
+2026,34,6,PAUSE_LEADER,"paused 3 (leader)",3830,0,0,0,0,0,1,0,2451,true
+2026,34,7,SLOW_NETWORK,"added 98 ms latency",3639,0,0,0,0,0,0,0,200,true
+2026,34,8,KILL_LEADER,"killed 1 (leader)",4983,0,0,0,0,0,2,0,708,true
+2026,34,9,KILL_FOLLOWER,"killed 3",5284,0,0,0,0,0,0,0,15,true
+2026,35,0,KILL_LEADER,"killed 3 (leader)",4297,0,0,0,0,0,0,0,1514,true
+2026,35,1,KILL_FOLLOWER,"killed 3",8581,0,0,0,0,0,0,0,8,true
+2026,35,2,KILL_ALL,"killed all",1597,6,0,0,0,0,0,3,3058,true
+2026,35,3,PARTITION_LEADER,"isolated 2 (leader)",4058,0,0,0,0,0,1,0,1116,true
+2026,35,4,PARTITION_FOLLOWER,"isolated 3",7249,0,0,0,0,0,0,0,9,true
+2026,35,5,PAUSE_LEADER,"paused 1 (leader)",4067,0,0,0,0,0,2,0,1810,true
+2026,35,6,SLOW_NETWORK,"added 111 ms latency",3835,0,0,0,0,0,0,0,224,true
+2026,35,7,KILL_LEADER,"killed 2 (leader)",6457,3,0,0,0,0,0,3,1530,true
+2026,35,8,KILL_FOLLOWER,"killed 2",7583,0,0,0,0,0,0,0,22,true
+2026,35,9,KILL_ALL,"killed all",1246,6,0,0,0,0,0,3,3743,true
+2026,36,0,KILL_FOLLOWER,"killed 3",8229,0,0,0,0,0,0,0,16,true
+2026,36,1,KILL_ALL,"killed all",1346,6,0,0,0,0,0,3,4537,true
+2026,36,2,PARTITION_LEADER,"isolated 2 (leader)",5142,0,0,0,0,0,1,0,909,true
+2026,36,3,PARTITION_FOLLOWER,"isolated 2",8354,0,0,0,0,0,0,0,5,true
+2026,36,4,PAUSE_LEADER,"paused 3 (leader)",4011,0,0,0,0,0,0,0,2373,true
+2026,36,5,SLOW_NETWORK,"added 120 ms latency",4280,0,0,0,0,0,0,0,242,true
+2026,36,6,KILL_LEADER,"killed 2 (leader)",4194,0,0,0,0,0,2,0,1515,true
+2026,36,7,KILL_FOLLOWER,"killed 3",6621,0,0,0,0,0,0,0,15,true
+2026,36,8,KILL_ALL,"killed all",1148,6,0,0,0,0,0,1,4548,true
+2026,36,9,PARTITION_LEADER,"isolated 1 (leader)",5473,0,0,0,0,0,0,0,1114,true
+2026,37,0,KILL_ALL,"killed all",1308,6,0,0,0,0,0,3,3742,true
+2026,37,1,PARTITION_LEADER,"isolated 3 (leader)",6417,0,0,0,0,0,2,0,913,true
+2026,37,2,PARTITION_FOLLOWER,"isolated 3",7737,0,0,0,0,0,0,0,8,true
+2026,37,3,PAUSE_LEADER,"paused 1 (leader)",3784,0,0,0,0,0,3,0,2568,true
+2026,37,4,SLOW_NETWORK,"added 189 ms latency",4437,0,0,0,0,0,0,0,380,true
+2026,37,5,KILL_LEADER,"killed 3 (leader)",6477,0,0,0,0,0,1,0,708,true
+2026,37,6,KILL_FOLLOWER,"killed 3",6497,0,0,0,0,0,0,0,14,true
+2026,37,7,KILL_ALL,"killed all",1430,6,0,0,0,0,0,2,3340,true
+2026,37,8,PARTITION_LEADER,"isolated 3 (leader)",5915,0,0,0,0,0,0,0,1107,true
+2026,37,9,PARTITION_FOLLOWER,"isolated 1",6816,0,0,0,0,0,0,0,9,true
+2026,38,0,PARTITION_LEADER,"isolated 2 (leader)",5964,0,0,0,0,0,2,0,1113,true
+2026,38,1,PARTITION_FOLLOWER,"isolated 3",8875,0,0,0,0,0,0,0,6,true
+2026,38,2,PAUSE_LEADER,"paused 1 (leader)",4045,0,0,0,0,0,1,0,2429,true
+2026,38,3,SLOW_NETWORK,"added 62 ms latency",4090,0,0,0,0,0,0,0,126,true
+2026,38,4,KILL_LEADER,"killed 3 (leader)",5490,0,0,0,0,0,1,0,710,true
+2026,38,5,KILL_FOLLOWER,"killed 3",8418,0,0,0,0,0,0,0,10,true
+2026,38,6,KILL_ALL,"killed all",1133,6,0,0,0,0,0,3,4543,true
+2026,38,7,PARTITION_LEADER,"isolated 1 (leader)",6060,0,0,0,0,0,1,0,1116,true
+2026,38,8,PARTITION_FOLLOWER,"isolated 2",7330,0,0,0,0,0,0,0,5,true
+2026,38,9,PAUSE_LEADER,"paused 3 (leader)",3059,0,0,0,0,0,1,0,2584,true
+2026,39,0,PARTITION_FOLLOWER,"isolated 3",6372,0,0,0,0,0,0,0,12,true
+2026,39,1,PAUSE_LEADER,"paused 1 (leader)",3955,0,0,0,0,0,0,0,2503,true
+2026,39,2,SLOW_NETWORK,"added 214 ms latency",3905,0,0,0,0,0,0,0,430,true
+2026,39,3,KILL_LEADER,"killed 3 (leader)",5187,0,0,0,0,0,2,0,1512,true
+2026,39,4,KILL_FOLLOWER,"killed 1",7486,0,0,0,0,0,0,0,10,true
+2026,39,5,KILL_ALL,"killed all",1204,6,0,0,0,0,0,2,4524,true
+2026,39,6,PARTITION_LEADER,"isolated 3 (leader)",6316,0,0,0,0,0,0,0,905,true
+2026,39,7,PARTITION_FOLLOWER,"isolated 2",6557,0,0,0,0,0,0,0,10,true
+2026,39,8,PAUSE_LEADER,"paused 1 (leader)",3472,0,0,0,0,0,2,0,2014,true
+2026,39,9,SLOW_NETWORK,"added 68 ms latency",3814,0,0,0,0,0,0,0,139,true
+2026,40,0,PAUSE_LEADER,"paused 1 (leader)",3311,0,0,0,0,0,1,0,2380,true
+2026,40,1,SLOW_NETWORK,"added 116 ms latency",3884,0,0,0,0,0,0,0,234,true
+2026,40,2,KILL_LEADER,"killed 2 (leader)",4708,0,0,0,0,0,1,0,1511,true
+2026,40,3,KILL_FOLLOWER,"killed 3",7885,0,0,0,0,0,0,0,17,true
+2026,40,4,KILL_ALL,"killed all",1582,9,0,0,0,0,0,1,4542,true
+2026,40,5,PARTITION_LEADER,"isolated 2 (leader)",4917,0,0,0,0,0,0,0,907,true
+2026,40,6,PARTITION_FOLLOWER,"isolated 1",9909,0,0,0,0,0,0,0,5,true
+2026,40,7,PAUSE_LEADER,"paused 3 (leader)",4032,0,0,0,0,0,1,0,1692,true
+2026,40,8,SLOW_NETWORK,"added 147 ms latency",3825,0,0,0,0,0,0,0,295,true
+2026,40,9,KILL_LEADER,"killed 1 (leader)",7048,0,0,0,0,0,3,0,708,true
+2026,41,0,SLOW_NETWORK,"added 200 ms latency",3347,0,0,0,0,0,0,0,402,true
+2026,41,1,KILL_LEADER,"killed 2 (leader)",5356,0,0,0,0,0,1,0,1516,true
+2026,41,2,KILL_FOLLOWER,"killed 3",7815,0,0,0,0,0,0,0,13,true
+2026,41,3,KILL_ALL,"killed all",1241,6,0,0,0,0,0,3,4541,true
+2026,41,4,PARTITION_LEADER,"isolated 2 (leader)",7277,0,0,0,0,0,1,0,912,true
+2026,41,5,PARTITION_FOLLOWER,"isolated 2",7685,0,0,0,0,0,0,0,16,true
+2026,41,6,PAUSE_LEADER,"paused 3 (leader)",3783,0,0,0,0,0,1,0,1954,true
+2026,41,7,SLOW_NETWORK,"added 52 ms latency",3940,0,0,0,0,0,0,0,105,true
+2026,41,8,KILL_LEADER,"killed 1 (leader)",5948,0,0,0,0,0,3,0,1511,true
+2026,41,9,KILL_FOLLOWER,"killed 2",6066,0,0,0,0,0,0,0,9,true
+2026,42,0,KILL_LEADER,"killed 3 (leader)",4354,3,0,0,0,0,0,1,1611,true
+2026,42,1,KILL_FOLLOWER,"killed 2",6876,0,0,0,0,0,0,0,8,true
+2026,42,2,KILL_ALL,"killed all",1519,9,0,0,0,0,0,1,4531,true
+2026,42,3,PARTITION_LEADER,"isolated 2 (leader)",6060,0,0,0,0,0,1,0,917,true
+2026,42,4,PARTITION_FOLLOWER,"isolated 1",7272,0,0,0,0,0,0,0,15,true
+2026,42,5,PAUSE_LEADER,"paused 3 (leader)",3838,0,0,0,0,0,1,0,1963,true
+2026,42,6,SLOW_NETWORK,"added 57 ms latency",4121,0,0,0,0,0,0,0,59,true
+2026,42,7,KILL_LEADER,"killed 1 (leader)",7479,0,0,0,0,0,1,0,708,true
+2026,42,8,KILL_FOLLOWER,"killed 3",6764,0,0,0,0,0,0,0,72,true
+2026,42,9,KILL_ALL,"killed all",1297,9,0,0,0,0,0,1,4539,true
+2026,43,0,KILL_FOLLOWER,"killed 3",6337,0,0,0,0,0,0,0,15,true
+2026,43,1,KILL_ALL,"killed all",1223,6,0,0,0,0,0,2,4545,true
+2026,43,2,PARTITION_LEADER,"isolated 2 (leader)",4848,0,0,0,0,0,2,0,919,true
+2026,43,3,PARTITION_FOLLOWER,"isolated 1",8841,0,0,0,0,0,0,0,13,true
+2026,43,4,PAUSE_LEADER,"paused 3 (leader)",4251,0,0,0,0,0,1,0,1846,true
+2026,43,5,SLOW_NETWORK,"added 127 ms latency",3843,0,0,0,0,0,0,0,256,true
+2026,43,6,KILL_LEADER,"killed 1 (leader)",6017,0,0,0,0,0,2,0,709,true
+2026,43,7,KILL_FOLLOWER,"killed 3",7725,0,0,0,0,0,0,0,10,true
+2026,43,8,KILL_ALL,"killed all",1309,9,0,0,0,0,0,3,4559,true
+2026,43,9,PARTITION_LEADER,"isolated 3 (leader)",4470,0,0,0,0,0,1,0,916,true
+2026,44,0,KILL_ALL,"killed all",1621,6,0,0,0,0,0,1,3334,true
+2026,44,1,PARTITION_LEADER,"isolated 2 (leader)",7919,0,0,0,0,0,1,0,911,true
+2026,44,2,PARTITION_FOLLOWER,"isolated 1",8615,0,0,0,0,0,0,0,12,true
+2026,44,3,PAUSE_LEADER,"paused 3 (leader)",4318,0,0,0,0,0,0,0,1557,true
+2026,44,4,SLOW_NETWORK,"added 108 ms latency",4438,0,0,0,0,0,0,0,218,true
+2026,44,5,KILL_LEADER,"killed 1 (leader)",5355,0,0,0,0,0,1,0,1509,true
+2026,44,6,KILL_FOLLOWER,"killed 2",6741,0,0,0,0,0,0,0,12,true
+2026,44,7,KILL_ALL,"killed all",936,6,0,0,0,0,0,3,4548,true
+2026,44,8,PARTITION_LEADER,"isolated 3 (leader)",5878,0,0,0,0,0,0,0,1107,true
+2026,44,9,PARTITION_FOLLOWER,"isolated 3",6239,0,0,0,0,0,0,0,14,true
+2026,45,0,PARTITION_LEADER,"isolated 1 (leader)",6403,0,0,0,0,0,0,0,917,true
+2026,45,1,PARTITION_FOLLOWER,"isolated 3",8904,0,0,0,0,0,0,0,5,true
+2026,45,2,PAUSE_LEADER,"paused 2 (leader)",4503,0,0,0,0,0,1,0,2118,true
+2026,45,3,SLOW_NETWORK,"added 116 ms latency",4176,0,0,0,0,0,0,0,234,true
+2026,45,4,KILL_LEADER,"killed 3 (leader)",7706,0,0,0,0,0,2,0,708,true
+2026,45,5,KILL_FOLLOWER,"killed 2",7076,0,0,0,0,0,0,0,14,true
+2026,45,6,KILL_ALL,"killed all",1154,6,0,0,0,0,0,3,3648,true
+2026,45,7,PARTITION_LEADER,"isolated 1 (leader)",4037,0,0,0,0,0,1,0,1116,true
+2026,45,8,PARTITION_FOLLOWER,"isolated 1",7844,0,0,0,0,0,0,0,27,true
+2026,45,9,PAUSE_LEADER,"paused 3 (leader)",3551,0,0,0,0,0,1,0,1855,true
+2026,46,0,PARTITION_FOLLOWER,"isolated 3",9187,0,0,0,0,0,0,0,14,true
+2026,46,1,PAUSE_LEADER,"paused 2 (leader)",3961,0,0,0,0,0,2,0,1884,true
+2026,46,2,SLOW_NETWORK,"added 247 ms latency",3906,0,0,0,0,0,0,0,496,true
+2026,46,3,KILL_LEADER,"killed 3 (leader)",4734,0,0,0,0,0,2,0,1509,true
+2026,46,4,KILL_FOLLOWER,"killed 3",9572,0,0,0,0,0,0,0,11,true
+2026,46,5,KILL_ALL,"killed all",1477,6,0,0,0,0,0,3,3628,true
+2026,46,6,PARTITION_LEADER,"isolated 2 (leader)",5702,0,0,0,0,0,1,0,912,true
+2026,46,7,PARTITION_FOLLOWER,"isolated 1",8315,0,0,0,0,0,0,0,9,true
+2026,46,8,PAUSE_LEADER,"paused 3 (leader)",3608,0,0,0,0,0,2,0,2323,true
+2026,46,9,SLOW_NETWORK,"added 81 ms latency",3595,0,0,0,0,0,0,0,164,true
+2026,47,0,PAUSE_LEADER,"paused 3 (leader)",3680,0,0,0,0,0,0,0,1511,true
+2026,47,1,SLOW_NETWORK,"added 104 ms latency",4411,0,0,0,0,0,0,0,210,true
+2026,47,2,KILL_LEADER,"killed 1 (leader)",6036,0,0,0,0,0,3,0,1512,true
+2026,47,3,KILL_FOLLOWER,"killed 2",9143,0,0,0,0,0,0,0,12,true
+2026,47,4,KILL_ALL,"killed all",1155,6,0,0,0,0,0,3,4549,true
+2026,47,5,PARTITION_LEADER,"isolated 3 (leader)",5043,0,0,0,0,0,3,0,1116,true
+2026,47,6,PARTITION_FOLLOWER,"isolated 1",7803,0,0,0,0,0,0,0,12,true
+2026,47,7,PAUSE_LEADER,"paused 2 (leader)",3444,0,0,0,0,0,2,0,2934,true
+2026,47,8,SLOW_NETWORK,"added 250 ms latency",1640,0,0,0,0,0,2,0,1710,true
+2026,47,9,KILL_LEADER,"killed 3 (leader)",4881,0,0,0,0,0,2,0,707,true
+2026,48,0,SLOW_NETWORK,"added 186 ms latency",3236,0,0,0,0,0,0,0,374,true
+2026,48,1,KILL_LEADER,"killed 1 (leader)",6314,0,0,0,0,0,2,0,712,true
+2026,48,2,KILL_FOLLOWER,"killed 3",8075,0,0,0,0,0,0,0,71,true
+2026,48,3,KILL_ALL,"killed all",1697,6,0,0,0,0,0,2,3027,true
+2026,48,4,PARTITION_LEADER,"isolated 2 (leader)",5968,0,0,0,0,0,1,0,1118,true
+2026,48,5,PARTITION_FOLLOWER,"isolated 2",6575,0,0,0,0,0,0,0,6,true
+2026,48,6,PAUSE_LEADER,"paused 1 (leader)",3760,0,0,0,0,0,3,0,2919,true
+2026,48,7,SLOW_NETWORK,"added 193 ms latency",3242,0,0,0,0,0,0,0,389,true
+2026,48,8,KILL_LEADER,"killed 2 (leader)",5058,0,0,0,0,0,3,0,714,true
+2026,48,9,KILL_FOLLOWER,"killed 1",6268,0,0,0,0,0,0,0,11,true
+2026,49,0,KILL_LEADER,"killed 2 (leader)",6101,0,0,0,0,0,2,0,712,true
+2026,49,1,KILL_FOLLOWER,"killed 2",6973,0,0,0,0,0,0,0,14,true
+2026,49,2,KILL_ALL,"killed all",1842,3,0,0,0,0,0,2,3037,true
+2026,49,3,PARTITION_LEADER,"isolated 2 (leader)",6960,0,0,0,0,0,0,0,915,true
+2026,49,4,PARTITION_FOLLOWER,"isolated 1",8391,0,0,0,0,0,0,0,36,true
+2026,49,5,PAUSE_LEADER,"paused 3 (leader)",4277,0,0,0,0,0,2,0,2084,true
+2026,49,6,SLOW_NETWORK,"added 241 ms latency",4318,0,0,0,0,0,0,0,484,true
+2026,49,7,KILL_LEADER,"killed 1 (leader)",7124,0,0,0,0,0,1,0,709,true
+2026,49,8,KILL_FOLLOWER,"killed 3",8831,0,0,0,0,0,0,0,17,true
+2026,49,9,KILL_ALL,"killed all",1203,6,0,0,0,0,0,3,4538,true

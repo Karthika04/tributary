@@ -4,8 +4,8 @@ Tributary is a distributed, fault-tolerant message queue in the style of Apache 
 written from scratch in Java. This document explains what it does, how it is built,
 and why each major decision was made.
 
-Status: **v4: storage engine, wire protocol, broker, client library, CLI, consumer groups
-and Raft replication across a 3-broker cluster complete.**
+Status: **v5: storage engine, wire protocol, broker, client library, CLI, consumer groups
+and Raft replication across a 3-broker cluster complete, chaos-tested and fuzzed.**
 Later sections are marked *planned*.
 
 ## 1. Goals
@@ -19,7 +19,8 @@ Later sections are marked *planned*.
   acknowledged, when any one broker dies.
 - **High throughput.** Batched writes, append-only files and an O(1) index.
 - **Evidence over claims.** Every guarantee above is backed by automated tests,
-  including fault-injection ("chaos") tests *(planned)*.
+  including fault-injection ("chaos") tests against real broker processes and
+  fuzz tests of every decoder (section 10).
 
 ## 2. Non-goals
 
@@ -56,6 +57,7 @@ Later sections are marked *planned*.
 | `broker` | TCP server, topics and partitions, long polling, retention, consumer groups, cluster mode | storage, protocol, raft, client |
 | `client` | `TributaryClient`, batching `Producer`, polling `Consumer`, multi-broker failover | protocol |
 | `cli` | The `tributary` command-line tool | client |
+| `chaos` | Chaos testing: real broker processes, fault injection, a correctness checker | client, broker |
 
 The broker uses the client library to talk to other brokers in a cluster (section 9).
 
@@ -456,13 +458,26 @@ election rule (below) guarantees the next leader has it.
   it answers. This was found by the tests on a Mac; the same failure reproduces on
   Linux by adding a 5 ms delay to every flush, and with the fix the Raft and cluster
   tests pass even at 20 ms.
+- **CheckQuorum.** A leader steps down when a majority has not answered it within the
+  longest election timeout. Without this, a leader cut off from its peers but still
+  reachable by clients keeps accepting writes it can never commit, and clients wait
+  out their own timeouts (with default settings, possibly the whole partition). With
+  it, waiting requests fail with `NOT_LEADER` within about a second and clients find
+  the new leader. Found by the chaos tests (section 10).
+- **PreVote** (Raft thesis section 9.6). Before raising its term for an election, a
+  node asks the others whether they *would* vote for it, which changes no state. A
+  node that heard from a live leader within the shortest election timeout says no.
+  Without this, a follower cut off for a few seconds keeps timing out and raising its
+  term, and on its return that higher term forces the healthy leader to step down:
+  the chaos tests saw one returning follower cost three elections. Also found by the
+  chaos tests.
 - **Applying.** A separate applier thread applies committed entries in order and
   completes the `CompletableFuture` returned by `propose()` with the state machine's
   result (for a produce, the base offset). If the node loses leadership first, the
   future fails with `NotLeaderException`; the command may still commit under the next
   leader, which is one source of at-least-once duplicates.
 
-Not implemented yet: snapshots and log compaction, membership changes, and pre-vote.
+Not implemented yet: snapshots and log compaction, and membership changes.
 
 ### 9.3 Cluster mode in the broker
 
@@ -472,6 +487,10 @@ Start each broker with the full member list:
 tributary-broker --node-id 1 --cluster 1=host1:9292,2=host2:9292,3=host3:9292 --data-dir ./data
 ```
 
+- **Separate peer addresses.** `--peer-addresses 2=10.0.0.2:9292,...` tells a broker how
+  to reach a peer where that differs from the `--cluster` address clients are given,
+  like Kafka's `listeners` vs. `advertised.listeners`. The chaos tests use it to route
+  every one-way link between brokers through its own proxy.
 - **One port for everything.** Brokers send each other `RAFT_VOTE` and `RAFT_APPEND`
   requests over the same Tributary protocol that clients use, through the client
   library (`BrokerRaftTransport`). No second network stack.
@@ -505,11 +524,148 @@ with exponential backoff (100 ms, doubling, capped at 1 s), up to 5 attempts by 
 The producer's own retries sit on top of that, so a producer rides through a leader
 election, which takes around a second, without the application noticing.
 
-## 10. Testing
+## 10. Chaos testing and fuzzing
 
-144 automated tests across the modules.
+Unit and cluster tests check the cases we thought of. Chaos testing checks the ones we
+did not: it breaks a real cluster in many ways, at random moments, while clients are
+writing, and then checks every guarantee. It found two real Raft problems (CheckQuorum
+and PreVote, section 9.2); fuzzing found three decoder bugs.
 
-Storage (46), including:
+Why real processes and our own proxy rather than Docker, Testcontainers and Toxiproxy:
+[ADR 0004](adr/0004-chaos-with-processes-and-our-own-proxy.md).
+
+### 10.1 The harness
+
+```
+              clients connect to every broker directly
+        +---------------------------------------------------+
+        v                         v                         v
+   broker 1 (JVM)            broker 2 (JVM)            broker 3 (JVM)
+        |  proxy 1->2 ---------->  |  proxy 2->3 ---------->  |
+        |  <---------- proxy 2->1  |  <---------- proxy 3->2  |
+        +------ proxy 1->3, proxy 3->1 ----------------------+
+```
+
+- **Each broker is its own JVM** (`BrokerProcess`), so a crash is a real `kill -9`:
+  no shutdown hook, no final flush, sockets torn down by the operating system.
+- **Each one-way link has its own proxy** (`ChaosProxy`), and each broker reaches its
+  peers through its own proxies (`--peer-addresses`). Cutting proxy 1->2 and 2->1
+  separates exactly brokers 1 and 2. A cut link drops open connections and
+  *black-holes* new ones: they are accepted but nothing comes back, so requests hang
+  until the sender's timeout, the way a dead network behaves.
+- **Clients bypass the proxies**, so a leader cut off from its peers can still be
+  reached by clients. That is the hard case: a leader that is alive and answering but
+  can no longer get a majority behind anything.
+
+### 10.2 Faults
+
+| Fault | What it does | What must hold |
+|---|---|---|
+| `KILL_LEADER` | `kill -9` the leader | a new leader is elected; nothing acknowledged is lost |
+| `KILL_FOLLOWER` | `kill -9` a follower | writes continue on the other two |
+| `KILL_ALL` | `kill -9` all three at once, then restart them | every acknowledged write is on disk |
+| `PARTITION_LEADER` | cut the leader off from both peers | it acknowledges nothing it cannot replicate; the other two elect a leader |
+| `PARTITION_FOLLOWER` | cut a follower off | it catches up after the heal, without disrupting the leader |
+| `PAUSE_LEADER` | freeze the leader with `SIGSTOP`, later `SIGCONT` | it wakes up still believing it leads, and must step down |
+| `SLOW_NETWORK` | 50 to 250 ms of delay on every link | everything still works, more slowly |
+
+### 10.3 A round, and the checker
+
+1. Create a fresh topic with 3 partitions.
+2. Three producers write `p<k>-0`, `p<k>-1`, ... to partition `k`, one record per
+   request and one request at a time, recording for every value whether it was
+   acknowledged, and at which offset.
+3. After 0.8 s, inject a fault. Hold it for 1.5 to 3 s, then heal everything:
+   reconnect links, wake frozen brokers, restart dead ones. Keep writing for 2 s more.
+4. Read every partition back and check, in the spirit of Jepsen's queue checkers:
+   - **Lost** (violation): acknowledged, but not stored.
+   - **Wrong offset** (violation): the offset a producer was given holds another record.
+   - **Out of order** (violation): a producer's values stored in a different order
+     than sent (first copies).
+   - **Foreign** (violation): a value in a partition its producer never wrote to.
+   - **Duplicates** (allowed, at-least-once) and **failed but stored** (allowed: the
+     producer gave up, but the write had committed).
+5. After a cluster's last round, stop all three brokers and compare their Raft logs
+   on disk: any two must agree entry by entry up to the shorter one's length (Raft's
+   Log Matching property).
+
+The checker has its own unit tests, which feed it each kind of violation by hand.
+Every round also records the **longest gap with no acknowledged write**: how long the
+fault made the cluster unavailable for writes.
+
+### 10.4 Results: 500 rounds
+
+50 fresh clusters of 10 rounds each (seed 2026), every fault about 71 times, on a
+2-CPU Linux machine. The full per-round results are in
+[docs/chaos/results-seed-2026.csv](chaos/results-seed-2026.csv).
+
+| Fault | Rounds | Acknowledged writes | Lost | Write stall, median | 95th percentile |
+|---|---:|---:|---:|---:|---:|
+| `KILL_LEADER` | 72 | 390,522 | 0 | 1.5 s | 1.6 s |
+| `KILL_FOLLOWER` | 72 | 515,440 | 0 | 13 ms | 71 ms |
+| `KILL_ALL` | 72 | 93,942 | 0 | 4.5 s | 4.6 s |
+| `PARTITION_LEADER` | 71 | 399,374 | 0 | 0.9 s | 1.1 s |
+| `PARTITION_FOLLOWER` | 71 | 537,694 | 0 | 11 ms | 71 ms |
+| `PAUSE_LEADER` | 71 | 260,258 | 0 | 2.4 s | 3.1 s |
+| `SLOW_NETWORK` | 71 | 267,182 | 0 | 318 ms | 492 ms |
+| **Total** | **500** | **2,464,412** | **0** | | |
+
+- **No violations of any kind**: nothing lost, no acknowledged offset holding the wrong
+  record, nothing out of order, nothing foreign, and all 50 sets of Raft logs agreed.
+- **Duplicates: 284** (about 0.01% of acknowledged writes), from retries after
+  timeouts, as at-least-once allows. 486 writes failed; 169 of those had committed
+  anyway.
+- **Write stall** is the longest stretch with no acknowledged write. Losing the leader
+  costs one election (about 1.5 s for a crash, 0.9 s for a partition, thanks to
+  CheckQuorum). Losing a follower costs nothing noticeable. `KILL_ALL` includes
+  starting three new JVMs. A frozen leader is bounded by the time it stays frozen and
+  the client's request timeout (5 s here): a process that cannot run cannot step down.
+- **Outliers.** Four rounds, all in cluster 10, stalled for about 6.5 s, each with
+  exactly one duplicate per producer: requests that committed but were not answered
+  within the 5 s timeout. A targeted rerun of 36 rounds did not reproduce it, and
+  making every broker's `fsync` wait 6 s produced the same signature (6.4 s stall, one
+  duplicate per producer), so the likely cause is a stall in the test machine's disk,
+  which all three brokers shared. The cluster behaved correctly through it: no write
+  was acknowledged before it was on disk, and none was lost.
+
+Run it yourself:
+
+```bash
+./gradlew :chaos:installDist
+chaos/build/install/chaos-runner/bin/chaos-runner --clusters 50 --rounds 10 --seed 2026
+# options: --faults KILL_LEADER,PAUSE_LEADER  --hold-ms 8000  --keep (keep data and broker logs)
+```
+
+### 10.5 Fuzzing
+
+`CodecFuzzTest` takes valid requests and responses and damages them in seeded random
+ways: flipped bits, cut-offs, garbage at the end, extreme values (-1, `Integer.MAX_VALUE`)
+written over length and count fields, repeated slices, and pure noise. Decoding must
+either succeed or throw `ProtocolException`. Anything else (a `NullPointerException`, a
+`NegativeArraySizeException`, an `OutOfMemoryError`) is a bug: on the broker it would end
+the connection with an unhelpful error, and a client would see an exception it does not
+expect. `RecordCodecFuzzTest` does the same for on-disk frames, recomputing the checksum
+on half of the inputs so the damage reaches the field parsing behind it.
+
+It found three bugs in the first few thousand inputs:
+
+- A JoinGroup whose topic list contained a null string: `NullPointerException`.
+- A response holding an invalid value (a partition with no topic) escaped the client as
+  `IllegalArgumentException`.
+- **A 150-byte message declaring a 2 GB compressed block made the receiver allocate
+  2 GB.** The zip-bomb guard preallocated the declared size before decompressing
+  anything: the guard was itself the bomb. Blocks are now decompressed in chunks and
+  capped at 64 MiB.
+
+Each bug's exact input is kept as a regression test. After the fixes, 300,000 damaged
+messages per decoder and 1,000,000 damaged record frames passed. The seed is fixed, and
+`-Dfuzz.iterations=N` runs longer.
+
+## 11. Testing
+
+164 automated tests across the modules.
+
+Storage (47), including:
 
 - Every single-bit flip in a record is detected by the checksum.
 - A half-written record at the end of the file is dropped after a crash, and a
@@ -522,21 +678,26 @@ Storage (46), including:
 - 100,000 records across many segments read back exactly.
 - Retention by time and size, including across a restart.
 - A batch bigger than a segment continues across segments.
+- Fuzzing: 1,000,000 damaged record frames, half with a recomputed checksum, fail only
+  as `CorruptRecordException` (section 10.5).
 - Truncating the tail (for Raft) works, survives a restart and a crash, and later
   appends reuse the freed offsets.
 
 The storage tests were also checked by deliberately breaking the code (removing the
 truncation step, skipping crash recovery) and confirming the right tests fail.
 
-Protocol (18): every message type round-trips with and without compression; cut-off,
+Protocol (22): every message type round-trips with and without compression; cut-off,
 padded, wrong-version and lying-compression-size inputs are rejected; murmur2 matches
-Kafka's published values; keys spread evenly.
+Kafka's published values; keys spread evenly; fuzzing (section 10.5), including the
+exact inputs of the three bugs it found.
 
-Raft (12), over a simulated network: exactly one leader per term; a vote is refused to
+Raft (14), over a simulated network: exactly one leader per term; a vote is refused to
 a candidate whose log is behind; a node that missed committed entries can never become
 leader; committed commands reach every node in order; followers refuse proposals and
-name the leader; a new leader keeps every committed command; an isolated leader cannot
-commit and its uncommitted entries are discarded when it rejoins; a lagging follower
+name the leader; a new leader keeps every committed command; an isolated leader steps
+down before the partition heals (CheckQuorum) and its uncommitted entries are discarded
+when it rejoins; a follower returning from a partition does not disrupt the leader, and
+a pre-vote changes nothing (PreVote); a lagging follower
 catches up; terms, votes and logs survive restarting every node; and a randomized
 chaos test (5 nodes, 25 rounds of crashes, restarts and partitions, fixed seed) checks
 after every round that no two nodes ever disagree on a committed entry. Breaking the
@@ -551,11 +712,11 @@ a follower; committed group offsets survive failover; without a majority nothing
 acknowledged, and writes resume when a majority returns. Making the broker acknowledge
 a produce before it commits makes three of these fail.
 
-Broker (20), against a real broker on a random port: topic errors; broker timestamps;
+Broker (21), against a real broker on a random port: topic errors; broker timestamps;
 compression both ways; a waiting fetch returns as soon as data arrives and gives up on
 time; shutdown wakes waiting fetches; data survives a restart; background retention;
 50 concurrent clients; malformed requests get an error and the connection keeps
-working; garbage and oversized frames close the connection; cluster flag parsing.
+working; garbage and oversized frames close the connection; cluster and peer-address flags.
 
 Client (12): every record gets a unique, dense offset; keyed records stay on their
 partition in order; unknown topics fail the future; the producer keeps retrying while
@@ -575,10 +736,13 @@ partitions move only after its session times out.
 CLI (6): create, list, produce from arguments and stdin, consume, consume with a group
 and resume, lag, offsets, error exit codes, unreachable broker.
 
-## 11. Planned
+Chaos (12): the checker detects each kind of violation from hand-made data (who checks
+the checker?); the proxy forwards, black-holes when cut, recovers when healed and
+delays when slowed; and every fault once against three real broker processes.
 
-Chaos testing of the real cluster: process kills and network partitions (Phase 5),
-metrics and benchmarks (Phase 6), Docker packaging (Phase 7). Raft snapshots and log
+## 12. Planned
+
+Metrics and benchmarks (Phase 6), Docker packaging (Phase 7). Raft snapshots and log
 compaction, so the Raft log stops growing and restarts stop replaying from the start.
 Per-partition leaders, to spread write load across brokers. Idempotent producers, to
 remove duplicates from retries.

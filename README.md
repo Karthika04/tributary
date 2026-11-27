@@ -8,6 +8,7 @@ Apache Kafka.
 > **Status:** a working replicated message queue: crash-safe storage, a binary TCP
 > protocol, a broker with consumer groups, a Java client library, a CLI, and a
 > 3-broker cluster that survives losing any broker, with Raft written from scratch.
+> Chaos-tested against real broker processes, and fuzzed.
 
 ## Try it in two minutes
 
@@ -127,13 +128,43 @@ try (Consumer consumer = new Consumer(ConsumerConfig.of(broker).withGroup("billi
 
 How and why it all works is explained in [docs/DESIGN.md](docs/DESIGN.md).
 
+## Chaos tested
+
+Three brokers run as real processes while producers write, and a harness breaks
+them on purpose: `kill -9` of the leader, a follower or all three; cutting the leader
+or a follower off the network; freezing the leader with `SIGSTOP`; slow links. A
+checker then compares every acknowledged write with what was stored.
+**500 rounds, 2.46 million acknowledged writes, none lost**, no ordering violations,
+and the brokers' Raft logs agreed every time.
+
+| Fault | Rounds | Lost writes | Writes stall for (median) |
+|---|---:|---:|---:|
+| Leader killed (`kill -9`) | 72 | 0 | 1.5 s |
+| Follower killed | 72 | 0 | 13 ms |
+| All three killed at once | 72 | 0 | 4.5 s (restart) |
+| Leader cut off from the others | 71 | 0 | 0.9 s |
+| Follower cut off | 71 | 0 | 11 ms |
+| Leader frozen (`SIGSTOP`) | 71 | 0 | 2.4 s |
+| 50 to 250 ms network delay | 71 | 0 | 318 ms |
+
+The chaos tests found two real Raft problems, now fixed (CheckQuorum and PreVote), and
+fuzzing the decoders found three bugs, including a 150-byte message that made the
+broker allocate 2 GB. Details, outliers and the full results:
+[DESIGN.md section 10](docs/DESIGN.md#10-chaos-testing-and-fuzzing).
+
+```bash
+./gradlew :chaos:installDist
+chaos/build/install/chaos-runner/bin/chaos-runner --clusters 5 --rounds 7
+```
+
 ## Build and test
 
 ```bash
 ./gradlew build
 ```
 
-Compiles every module and runs 144 tests, including Raft safety under random crashes
+Compiles every module and runs 164 tests, including every chaos fault once against
+real broker processes, fuzzing of every decoder, Raft safety under random crashes
 and partitions, a 3-broker cluster losing its leader in the middle of a stream of
 writes, and end-to-end tests against a real broker: long polling, restarts, retries
 while the broker is down, 50 concurrent clients, consumer-group rebalances and crashed
@@ -149,6 +180,7 @@ raft/       Raft consensus: elections, replication, safety  (uses storage)
 broker/     TCP server, topics, long polling, retention, consumer groups, cluster mode
 client/     TributaryClient, Producer, Consumer
 cli/        the `tributary` command-line tool
+chaos/      chaos testing: broker processes, fault-injecting proxy, checker
 docs/       design document and architecture decision records
 ```
 
@@ -159,7 +191,7 @@ docs/       design document and architecture decision records
 - [x] Consumer groups with committed offsets
 - [x] 3-broker replication with Raft, written from scratch
 - [ ] Raft snapshots and log compaction
-- [ ] Chaos testing: node kills, network partitions
+- [x] Chaos testing: kill -9, partitions, frozen processes, slow links; fuzzing
 - [ ] Metrics (Prometheus, Grafana) and benchmarks
 - [ ] Docker Compose cluster
 
