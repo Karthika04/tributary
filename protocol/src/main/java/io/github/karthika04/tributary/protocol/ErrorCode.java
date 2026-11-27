@@ -31,7 +31,12 @@ public enum ErrorCode {
      * This broker is not the cluster's leader. The message names the leader's address
      * when known ("leader is host:port"); clients retry there.
      */
-    NOT_LEADER(16, true);
+    NOT_LEADER(16, true),
+    /**
+     * Not sent by the broker: the producer's buffer stayed full for longer than
+     * {@code maxBlockMs}, because records are produced faster than the cluster accepts them.
+     */
+    PRODUCER_BUFFER_FULL(17, true);
 
     private final short code;
     private final boolean retriable;

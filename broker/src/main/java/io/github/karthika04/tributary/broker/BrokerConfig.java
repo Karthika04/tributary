@@ -101,6 +101,11 @@ public record BrokerConfig(
                 maxFetchRecords, groupCheckIntervalMs, id, nodes, Map.of());
     }
 
+    public BrokerConfig withMaxFrameBytes(int value) {
+        return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, value, maxFetchWaitMs,
+                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, peerAddresses);
+    }
+
     public BrokerConfig withPeerAddresses(Map<String, String> value) {
         return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
                 maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, value);

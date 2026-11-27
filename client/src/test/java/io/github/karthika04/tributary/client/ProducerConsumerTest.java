@@ -13,6 +13,8 @@ import io.github.karthika04.tributary.protocol.Partitioning;
 import io.github.karthika04.tributary.protocol.TopicPartition;
 import io.github.karthika04.tributary.storage.LogConfig;
 import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -60,6 +62,64 @@ class ProducerConsumerTest {
     }
 
     // ---- producer ----------------------------------------------------------------
+
+    @Test
+    void aFloodOfRecordsIsSplitIntoBatchesNoBiggerThanBatchBytes() throws Exception {
+        // A broker that refuses requests over 256 KB. Before batches were capped, 3,000
+        // records sent faster than the sender could ship them piled into one 3 MB batch,
+        // which this broker refused, so every record failed.
+        try (BrokerServer broker = BrokerServer.start(BrokerConfig.defaults(dataDir).withPort(0)
+                .withMaxFrameBytes(256 * 1024))) {
+            createTopic(broker, "flood", 1);
+            List<CompletableFuture<RecordMetadata>> futures = new ArrayList<>();
+            byte[] value = new byte[1_000];
+            try (Producer producer = new Producer(ProducerConfig.of(clientConfig(broker)).withBatchBytes(16 * 1024))) {
+                for (int i = 0; i < 3_000; i++) {
+                    futures.add(producer.send("flood", 0, null, value));
+                }
+                producer.flush();
+            }
+            Set<Long> offsets = new HashSet<>();
+            for (CompletableFuture<RecordMetadata> f : futures) {
+                offsets.add(f.get().offset());
+            }
+            assertEquals(3_000, offsets.size());
+            assertEquals(2_999L, offsets.stream().mapToLong(Long::longValue).max().orElseThrow());
+        }
+    }
+
+    @Test
+    void sendBlocksWhenTheBufferIsFullAndGivesUpAfterMaxBlockMs() throws Exception {
+        // A "broker" that accepts connections and never answers, so nothing is ever acknowledged.
+        try (ServerSocket silent = new ServerSocket(0)) {
+            Thread.ofVirtual().start(() -> {
+                List<Socket> held = new ArrayList<>();
+                while (!silent.isClosed()) {
+                    try {
+                        held.add(silent.accept());
+                    } catch (IOException e) {
+                        return;
+                    }
+                }
+            });
+            ClientConfig client = ClientConfig.of("localhost", silent.getLocalPort())
+                    .withRequestTimeoutMs(1_000).withMaxAttempts(1);
+            ProducerConfig config = ProducerConfig.of(client).withRetries(0, 0).withBuffer(4_096, 300);
+            try (Producer producer = new Producer(config)) {
+                byte[] value = new byte[1_000];
+                for (int i = 0; i < 4; i++) {
+                    producer.send("t", 0, null, value); // fills the 4 KB buffer
+                }
+                long start = System.nanoTime();
+                CompletableFuture<RecordMetadata> blocked = producer.send("t", 0, null, value);
+                long waitedMs = (System.nanoTime() - start) / 1_000_000;
+
+                ExecutionException e = assertThrows(ExecutionException.class, blocked::get);
+                assertEquals(ErrorCode.PRODUCER_BUFFER_FULL, ((TributaryException) e.getCause()).error());
+                assertTrue(waitedMs >= 250, "send should have blocked for about 300 ms, blocked " + waitedMs);
+            }
+        }
+    }
 
     @Test
     void producerReturnsAnOffsetForEveryRecord() throws Exception {

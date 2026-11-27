@@ -5,6 +5,7 @@ import io.github.karthika04.tributary.protocol.Partitioning;
 import io.github.karthika04.tributary.protocol.ProducedRecord;
 import io.github.karthika04.tributary.protocol.TopicPartition;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -28,9 +29,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * }</pre>
  *
  * <p>How it works: {@link #send} only adds the record to an in-memory batch for its
- * partition and returns a future right away. A background "sender" thread ships a
- * batch when it is full ({@code batchBytes}) or has waited {@code lingerMs}, then
- * completes each record's future with its offset.
+ * partition and returns a future right away. Each partition has a queue of batches:
+ * when the newest is full ({@code batchBytes}), a new one is started, so no request
+ * grows past that size however fast records arrive. A background "sender" thread ships
+ * a batch when it is full or has waited {@code lingerMs}, then completes each record's
+ * future with its offset. If more than {@code bufferBytes} are waiting, {@code send}
+ * blocks until the sender catches up (backpressure), for at most {@code maxBlockMs}.
  *
  * <p>Partitioning: records with a key always go to the same partition (so they stay
  * in order). Records without a key stick to one partition until its batch is sent,
@@ -58,8 +62,11 @@ public final class Producer implements AutoCloseable {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition workAvailable = lock.newCondition();
     private final Condition idle = lock.newCondition();
-    /** Open batches, at most one per partition, in creation order. Guarded by lock. */
-    private final Map<TopicPartition, Batch> batches = new LinkedHashMap<>();
+    private final Condition spaceAvailable = lock.newCondition();
+    /** Batches waiting to be sent, per partition, oldest first. Guarded by lock. */
+    private final Map<TopicPartition, ArrayDeque<Batch>> queues = new LinkedHashMap<>();
+    /** Bytes of records queued or being sent; send() blocks above bufferBytes. Guarded by lock. */
+    private long bufferedBytes;
     private int inFlight;
     private int flushRequests;
     private boolean closing;
@@ -99,15 +106,51 @@ public final class Producer implements AutoCloseable {
             if (closing) {
                 throw new IllegalStateException("producer is closed");
             }
-            Batch batch = batches.computeIfAbsent(tp, Batch::new);
+            if (!awaitBufferSpace(size)) {
+                future.completeExceptionally(new TributaryException(ErrorCode.PRODUCER_BUFFER_FULL,
+                        "the producer's buffer of " + config.bufferBytes() + " bytes stayed full for "
+                                + config.maxBlockMs() + " ms: records are produced faster than they can be sent"));
+                return future;
+            }
+            ArrayDeque<Batch> queue = queues.computeIfAbsent(tp, k -> new ArrayDeque<>());
+            Batch batch = queue.peekLast();
+            boolean newBatch = batch == null || batch.bytes + size > config.batchBytes();
+            if (newBatch) {
+                batch = new Batch(tp);
+                queue.addLast(batch);
+            }
             batch.add(record, future, size);
-            if (batch.bytes >= config.batchBytes() || batch.records.size() == 1) {
-                workAvailable.signal(); // a full batch, or a new one whose linger timer must start
+            bufferedBytes += size;
+            if (newBatch || batch.bytes >= config.batchBytes()) {
+                workAvailable.signal(); // a batch is full, or a new one's linger timer must start
             }
         } finally {
             lock.unlock();
         }
         return future;
+    }
+
+    /**
+     * Waits (holding the lock, released while waiting) until {@code size} more bytes fit
+     * in the buffer. A record larger than the whole buffer is let through once the buffer
+     * is empty, so it can still be sent.
+     *
+     * @return false if the wait timed out
+     */
+    private boolean awaitBufferSpace(int size) {
+        long remaining = TimeUnit.MILLISECONDS.toNanos(config.maxBlockMs());
+        while (bufferedBytes > 0 && bufferedBytes + size > config.bufferBytes()) {
+            if (remaining <= 0 || closing) {
+                return false;
+            }
+            try {
+                remaining = spaceAvailable.awaitNanos(remaining);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return true;
     }
 
     private int choosePartition(String topic, byte[] key) {
@@ -124,7 +167,7 @@ public final class Producer implements AutoCloseable {
         try {
             flushRequests++;
             workAvailable.signal();
-            while (!batches.isEmpty() || inFlight > 0) {
+            while (!queues.isEmpty() || inFlight > 0) {
                 idle.awaitUninterruptibly();
             }
             flushRequests--;
@@ -143,6 +186,7 @@ public final class Producer implements AutoCloseable {
             }
             closing = true;
             workAvailable.signal();
+            spaceAvailable.signalAll(); // a send() waiting for buffer space gives up
         } finally {
             lock.unlock();
         }
@@ -178,6 +222,8 @@ public final class Producer implements AutoCloseable {
                 lock.lock();
                 try {
                     inFlight--;
+                    bufferedBytes -= batch.bytes;
+                    spaceAvailable.signalAll();
                     idle.signalAll();
                 } finally {
                     lock.unlock();
@@ -194,13 +240,17 @@ public final class Producer implements AutoCloseable {
             long lingerNanos = TimeUnit.MILLISECONDS.toNanos(config.lingerMs());
             long nextDeadline = Long.MAX_VALUE;
             List<Batch> ready = new ArrayList<>();
-            Iterator<Batch> it = batches.values().iterator();
+            Iterator<ArrayDeque<Batch>> it = queues.values().iterator();
             while (it.hasNext()) {
-                Batch batch = it.next();
+                ArrayDeque<Batch> queue = it.next();
+                Batch batch = queue.peekFirst(); // one batch per partition per round keeps them in order
                 long age = now - batch.createdNanos;
-                if (sendAll || batch.bytes >= config.batchBytes() || age >= lingerNanos) {
-                    ready.add(batch);
-                    it.remove();
+                boolean full = queue.size() > 1 || batch.bytes >= config.batchBytes();
+                if (sendAll || full || age >= lingerNanos) {
+                    ready.add(queue.pollFirst());
+                    if (queue.isEmpty()) {
+                        it.remove();
+                    }
                     rotateSticky(batch.partition);
                 } else {
                     nextDeadline = Math.min(nextDeadline, lingerNanos - age);
