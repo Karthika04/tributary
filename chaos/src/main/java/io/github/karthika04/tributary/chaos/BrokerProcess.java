@@ -16,14 +16,28 @@ public final class BrokerProcess {
 
     private static final String MAIN = "io.github.karthika04.tributary.broker.BrokerMain";
 
+    /**
+     * Small and quick to start, for chaos tests that start brokers again and again. Not
+     * for benchmarks: TieredStopAtLevel=1 turns off the optimizing JIT compiler.
+     */
+    public static final List<String> CHAOS_JVM_OPTIONS =
+            List.of("-Xmx256m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1");
+
     private final String nodeId;
+    private final List<String> jvmOptions;
     private final List<String> args;
     private final Path logFile;
     private Process process;
     private boolean paused;
 
-    BrokerProcess(String nodeId, List<String> brokerArgs, Path logFile) {
+    /**
+     * @param jvmOptions options for the broker's JVM, such as {@link #CHAOS_JVM_OPTIONS}
+     * @param brokerArgs the broker's own command-line arguments
+     * @param logFile    where its output goes (appended)
+     */
+    public BrokerProcess(String nodeId, List<String> jvmOptions, List<String> brokerArgs, Path logFile) {
         this.nodeId = nodeId;
+        this.jvmOptions = List.copyOf(jvmOptions);
         this.args = List.copyOf(brokerArgs);
         this.logFile = logFile;
     }
@@ -45,11 +59,10 @@ public final class BrokerProcess {
         if (isRunning()) {
             throw new IllegalStateException("broker " + nodeId + " is already running");
         }
-        List<String> command = new ArrayList<>(List.of(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-Xmx256m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", // small and quick to start
-                "-cp", System.getProperty("java.class.path"),
-                MAIN));
+        List<String> command = new ArrayList<>();
+        command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+        command.addAll(jvmOptions);
+        command.addAll(List.of("-cp", System.getProperty("java.class.path"), MAIN));
         command.addAll(args);
         process = new ProcessBuilder(command)
                 .redirectErrorStream(true)

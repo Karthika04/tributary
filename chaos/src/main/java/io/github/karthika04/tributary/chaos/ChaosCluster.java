@@ -39,15 +39,27 @@ public final class ChaosCluster implements AutoCloseable {
     private final Map<String, ChaosProxy> proxies = new LinkedHashMap<>(); // "1->2"
     private final Map<String, BrokerProcess> brokers = new LinkedHashMap<>();
 
+    /** A chaos cluster: proxies on every link, small quick-starting JVMs. */
     public ChaosCluster(Path dir) throws IOException {
+        this(dir, true, BrokerProcess.CHAOS_JVM_OPTIONS);
+    }
+
+    /**
+     * @param proxies    false to connect brokers directly (for benchmarks: no proxy in the
+     *                   replication path, and the network faults do nothing)
+     * @param jvmOptions options for each broker's JVM
+     */
+    public ChaosCluster(Path dir, boolean proxies, List<String> jvmOptions) throws IOException {
         this.dir = dir;
         for (String id : IDS) {
             ports.put(id, freePort());
         }
-        for (String from : IDS) {
-            for (String to : IDS) {
-                if (!from.equals(to)) {
-                    proxies.put(from + "->" + to, new ChaosProxy(ports.get(to)));
+        if (proxies) {
+            for (String from : IDS) {
+                for (String to : IDS) {
+                    if (!from.equals(to)) {
+                        this.proxies.put(from + "->" + to, new ChaosProxy(ports.get(to)));
+                    }
                 }
             }
         }
@@ -56,17 +68,19 @@ public final class ChaosCluster implements AutoCloseable {
             cluster.add(id + "=localhost:" + ports.get(id));
         }
         for (String id : IDS) {
-            StringJoiner peers = new StringJoiner(",");
-            for (String to : IDS) {
-                if (!to.equals(id)) {
-                    peers.add(to + "=localhost:" + proxies.get(id + "->" + to).port());
+            List<String> args = new ArrayList<>(List.of("--node-id", id, "--cluster", cluster.toString(),
+                    "--data-dir", dir.resolve("node-" + id).toString()));
+            if (proxies) {
+                StringJoiner peers = new StringJoiner(",");
+                for (String to : IDS) {
+                    if (!to.equals(id)) {
+                        peers.add(to + "=localhost:" + this.proxies.get(id + "->" + to).port());
+                    }
                 }
+                args.addAll(List.of("--peer-addresses", peers.toString()));
             }
-            Path data = dir.resolve("node-" + id);
-            Files.createDirectories(data);
-            brokers.put(id, new BrokerProcess(id, List.of("--node-id", id, "--cluster", cluster.toString(),
-                    "--peer-addresses", peers.toString(), "--data-dir", data.toString()),
-                    dir.resolve("broker-" + id + ".log")));
+            Files.createDirectories(dir.resolve("node-" + id));
+            brokers.put(id, new BrokerProcess(id, jvmOptions, args, dir.resolve("broker-" + id + ".log")));
         }
     }
 
