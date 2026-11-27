@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
  * tributary-broker [--port 9292] [--data-dir ./data] [--retention-hours 168]
  *                  [--retention-bytes N] [--segment-bytes N] [--flush-every-append]
  *                  [--node-id ID --cluster ID=host:port,ID=host:port,...]
+ *                  [--peer-addresses ID=host:port,...]
  * </pre>
  *
  * Ctrl+C shuts it down gracefully.
@@ -59,6 +60,7 @@ public final class BrokerMain {
         LogConfig log = LogConfig.defaults();
         String nodeId = null;
         Map<String, String> cluster = Map.of();
+        Map<String, String> peerAddresses = Map.of();
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             switch (arg) {
@@ -74,6 +76,7 @@ public final class BrokerMain {
                 case "--flush-every-append" -> log = log.withFlushEveryAppend(true);
                 case "--node-id" -> nodeId = value(args, ++i, arg);
                 case "--cluster" -> cluster = parseCluster(value(args, ++i, arg));
+                case "--peer-addresses" -> peerAddresses = parseAddresses(value(args, ++i, arg));
                 default -> throw new IllegalArgumentException("unknown option " + arg);
             }
         }
@@ -88,11 +91,28 @@ public final class BrokerMain {
             port = cluster.isEmpty() ? BrokerConfig.DEFAULT_PORT : portOf(cluster.get(nodeId));
         }
         BrokerConfig config = BrokerConfig.defaults(dataDir).withPort(port).withLogConfig(log);
-        return cluster.isEmpty() ? config : config.withCluster(nodeId, cluster);
+        if (cluster.isEmpty()) {
+            if (!peerAddresses.isEmpty()) {
+                throw new IllegalArgumentException("--peer-addresses needs --cluster");
+            }
+            return config;
+        }
+        return config.withCluster(nodeId, cluster).withPeerAddresses(peerAddresses);
     }
 
-    /** Parses {@code 1=localhost:9292,2=localhost:9293}. */
+    /** Parses {@code 1=localhost:9292,2=localhost:9293,3=localhost:9294}: at least 3 nodes. */
     static Map<String, String> parseCluster(String spec) {
+        Map<String, String> nodes = parseAddresses(spec);
+        if (nodes.size() < 3) {
+            // With two nodes a majority is both, so losing either stops the cluster:
+            // no better than one broker, and easy to misread as fault tolerant.
+            throw new IllegalArgumentException("a cluster needs at least 3 nodes, got " + nodes.size());
+        }
+        return nodes;
+    }
+
+    /** Parses {@code ID=host:port,ID=host:port}. */
+    static Map<String, String> parseAddresses(String spec) {
         Map<String, String> nodes = new LinkedHashMap<>();
         for (String part : spec.split(",")) {
             String entry = part.strip();
@@ -106,11 +126,6 @@ public final class BrokerMain {
             if (nodes.put(id, address) != null) {
                 throw new IllegalArgumentException("node " + id + " is listed twice");
             }
-        }
-        if (nodes.size() < 3) {
-            // With two nodes a majority is both, so losing either stops the cluster:
-            // no better than one broker, and easy to misread as fault tolerant.
-            throw new IllegalArgumentException("a cluster needs at least 3 nodes, got " + nodes.size());
         }
         return nodes;
     }
@@ -151,6 +166,9 @@ public final class BrokerMain {
                   --cluster LIST         run as a replicated cluster, e.g.
                                          1=localhost:9292,2=localhost:9293,3=localhost:9294
                                          (the port defaults to this node's entry)
+                  --peer-addresses LIST  reach these peers at other addresses than --cluster
+                                         gives (another network, or a test proxy), e.g.
+                                         2=10.0.0.2:9292,3=10.0.0.3:9292
                   --help                 show this message""";
     }
 }

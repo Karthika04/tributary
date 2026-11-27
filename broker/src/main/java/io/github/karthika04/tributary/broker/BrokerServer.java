@@ -82,8 +82,12 @@ public final class BrokerServer implements AutoCloseable {
             LocalWrites local = new LocalWrites(topics, offsets);
             Writes writes = local;
             if (config.isClustered()) {
-                Map<String, String> peers = new HashMap<>(config.clusterNodes());
-                peers.remove(config.nodeId());
+                Map<String, String> peers = new HashMap<>();
+                for (String id : config.clusterNodes().keySet()) {
+                    if (!id.equals(config.nodeId())) {
+                        peers.put(id, config.peerAddress(id));
+                    }
+                }
                 startedTransport = new BrokerRaftTransport(config.nodeId(), peers);
                 RaftConfig raftConfig = RaftConfig.of(config.nodeId(), List.copyOf(peers.keySet()),
                         config.dataDir().resolve("raft"));

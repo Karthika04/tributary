@@ -36,6 +36,21 @@ class BrokerMainTest {
     }
 
     @Test
+    void peersCanBeReachedAtOtherAddresses() {
+        BrokerConfig config = BrokerMain.parse(new String[] {"--node-id", "1", "--cluster", CLUSTER,
+                "--peer-addresses", "2=localhost:7002"});
+        assertEquals("localhost:7002", config.peerAddress("2"));
+        assertEquals("localhost:9294", config.peerAddress("3")); // not overridden
+        assertEquals("localhost:9293", config.clusterNodes().get("2")); // still what clients are told
+        assertThrows(IllegalArgumentException.class, () -> BrokerMain.parse(new String[] {"--node-id", "1",
+                "--cluster", CLUSTER, "--peer-addresses", "1=localhost:7001"})); // itself
+        assertThrows(IllegalArgumentException.class, () -> BrokerMain.parse(new String[] {"--node-id", "1",
+                "--cluster", CLUSTER, "--peer-addresses", "9=localhost:7009"})); // not a member
+        assertThrows(IllegalArgumentException.class, () -> BrokerMain.parse(new String[] {
+                "--peer-addresses", "2=localhost:7002"})); // no cluster
+    }
+
+    @Test
     void rejectsBadClusterSettings() {
         assertThrows(IllegalArgumentException.class,
                 () -> BrokerMain.parse(new String[] {"--cluster", CLUSTER}));

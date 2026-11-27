@@ -19,7 +19,12 @@ import java.util.TreeMap;
  * @param groupCheckIntervalMs     how often consumer-group sessions are checked for expiry
  * @param nodeId                   this broker's id in a cluster, or null for a single broker
  * @param clusterNodes             every broker in the cluster (this one included), id to
- *                                 {@code host:port}; empty for a single broker
+ *                                 {@code host:port}; empty for a single broker. These are the
+ *                                 addresses clients are told about.
+ * @param peerAddresses            how this broker reaches its peers, where that differs from
+ *                                 {@code clusterNodes} (another network, or a proxy in the
+ *                                 chaos tests); peers not listed use their {@code clusterNodes}
+ *                                 address. Like Kafka's listeners vs. advertised.listeners.
  */
 public record BrokerConfig(
         int port,
@@ -31,7 +36,8 @@ public record BrokerConfig(
         int maxFetchRecords,
         long groupCheckIntervalMs,
         String nodeId,
-        Map<String, String> clusterNodes) {
+        Map<String, String> clusterNodes,
+        Map<String, String> peerAddresses) {
 
     public static final int DEFAULT_PORT = 9292;
 
@@ -47,11 +53,17 @@ public record BrokerConfig(
         if (!clusterNodes.isEmpty() && (nodeId == null || !clusterNodes.containsKey(nodeId))) {
             throw new IllegalArgumentException("in a cluster, nodeId must be one of " + new TreeMap<>(clusterNodes).keySet());
         }
+        peerAddresses = Map.copyOf(peerAddresses);
+        for (String id : peerAddresses.keySet()) {
+            if (id.equals(nodeId) || !clusterNodes.containsKey(id)) {
+                throw new IllegalArgumentException("peer address given for " + id + ", which is not another cluster node");
+            }
+        }
     }
 
     public static BrokerConfig defaults(Path dataDir) {
         return new BrokerConfig(DEFAULT_PORT, dataDir, LogConfig.defaults(), 60_000,
-                Frames.DEFAULT_MAX_FRAME_BYTES, 30_000, 10_000, 500, null, Map.of());
+                Frames.DEFAULT_MAX_FRAME_BYTES, 30_000, 10_000, 500, null, Map.of(), Map.of());
     }
 
     public boolean isClustered() {
@@ -60,32 +72,42 @@ public record BrokerConfig(
 
     public BrokerConfig withPort(int value) {
         return new BrokerConfig(value, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
-                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes);
+                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, peerAddresses);
     }
 
     public BrokerConfig withLogConfig(LogConfig value) {
         return new BrokerConfig(port, dataDir, value, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
-                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes);
+                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, peerAddresses);
     }
 
     public BrokerConfig withRetentionCheckIntervalMs(long value) {
         return new BrokerConfig(port, dataDir, logConfig, value, maxFrameBytes, maxFetchWaitMs, maxFetchRecords,
-                groupCheckIntervalMs, nodeId, clusterNodes);
+                groupCheckIntervalMs, nodeId, clusterNodes, peerAddresses);
     }
 
     public BrokerConfig withMaxFetchWaitMs(int value) {
         return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, value,
-                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes);
+                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, peerAddresses);
     }
 
     public BrokerConfig withGroupCheckIntervalMs(long value) {
         return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
-                maxFetchRecords, value, nodeId, clusterNodes);
+                maxFetchRecords, value, nodeId, clusterNodes, peerAddresses);
     }
 
     /** Makes this broker one member of a cluster. */
     public BrokerConfig withCluster(String id, Map<String, String> nodes) {
         return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
-                maxFetchRecords, groupCheckIntervalMs, id, nodes);
+                maxFetchRecords, groupCheckIntervalMs, id, nodes, Map.of());
+    }
+
+    public BrokerConfig withPeerAddresses(Map<String, String> value) {
+        return new BrokerConfig(port, dataDir, logConfig, retentionCheckIntervalMs, maxFrameBytes, maxFetchWaitMs,
+                maxFetchRecords, groupCheckIntervalMs, nodeId, clusterNodes, value);
+    }
+
+    /** The address this broker uses to reach peer {@code id}. */
+    public String peerAddress(String id) {
+        return peerAddresses.getOrDefault(id, clusterNodes.get(id));
     }
 }
